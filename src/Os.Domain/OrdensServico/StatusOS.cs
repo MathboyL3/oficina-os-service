@@ -8,5 +8,6 @@ public enum StatusOS
     EmExecucao = 4,
     Finalizada = 5,
     Entregue = 6,
+    AguardandoPagamento = 31,
     Cancelada = 99
 }

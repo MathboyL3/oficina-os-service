@@ -86,24 +86,42 @@ public sealed class OrdemDeServico : AggregateRoot
         ObservacoesDiagnostico = observacoes;
     }
 
+    public bool PodeCancelar => Status is not (StatusOS.Entregue or StatusOS.Cancelada or StatusOS.Finalizada);
+
     public void EnviarParaAprovacao()
     {
         if (_servicos.Count == 0 && _pecas.Count == 0)
             throw new DomainException("OS sem itens não pode ser enviada para aprovação.");
-        ExigirTransicao(StatusOS.EmDiagnostico, StatusOS.AguardandoAprovacao, "Orçamento enviado ao cliente.");
+        if (Status is not (StatusOS.Recebida or StatusOS.EmDiagnostico))
+            throw new DomainException($"Transição inválida: status atual é {Status}, esperado Recebida/EmDiagnostico para mudar para AguardandoAprovacao.");
+        var de = Status;
+        Status = StatusOS.AguardandoAprovacao;
+        _historico.Add(HistoricoStatus.Criar(Id, de, Status, "Orçamento enviado ao cliente."));
     }
 
     public void AprovarOrcamento()
+        => ExigirTransicao(StatusOS.AguardandoAprovacao, StatusOS.AguardandoPagamento, "Orçamento aprovado pelo cliente. Aguardando pagamento.");
+
+    public void ConfirmarPagamento()
     {
-        ExigirTransicao(StatusOS.AguardandoAprovacao, StatusOS.EmExecucao, "Orçamento aprovado pelo cliente.");
+        ExigirTransicao(StatusOS.AguardandoPagamento, StatusOS.EmExecucao, "Pagamento confirmado. Serviço em execução.");
         IniciadaExecucaoEm = DateTime.UtcNow;
     }
 
-    public void RejeitarOrcamento(string motivo)
-    {
-        ExigirTransicao(StatusOS.AguardandoAprovacao, StatusOS.Cancelada, $"Orçamento rejeitado: {motivo}");
-    }
+    public void RegistrarObservacao(string observacao)
+        => _historico.Add(HistoricoStatus.Criar(Id, Status, Status, observacao));
 
+    public void SubstituirItens(
+        IEnumerable<(Guid servicoId, string descricao, Money valor, int qtd)> servicos,
+        IEnumerable<(Guid pecaId, string descricao, Money valor, int qtd)> pecas)
+    {
+        GarantirEditavel("alterar itens");
+        _servicos.Clear();
+        _pecas.Clear();
+        foreach (var s in servicos) _servicos.Add(ItemServico.Criar(Id, s.servicoId, s.descricao, s.valor, s.qtd));
+        foreach (var p in pecas) _pecas.Add(ItemPeca.Criar(Id, p.pecaId, p.descricao, p.valor, p.qtd));
+        Recalcular();
+    }
     public void Finalizar()
     {
         ExigirTransicao(StatusOS.EmExecucao, StatusOS.Finalizada, "Execução concluída.");
@@ -135,7 +153,7 @@ public sealed class OrdemDeServico : AggregateRoot
 
     private void GarantirEditavel(string acao)
     {
-        if (Status is StatusOS.AguardandoAprovacao or StatusOS.EmExecucao or StatusOS.Finalizada or StatusOS.Entregue or StatusOS.Cancelada)
+        if (Status is StatusOS.AguardandoAprovacao or StatusOS.AguardandoPagamento or StatusOS.EmExecucao or StatusOS.Finalizada or StatusOS.Entregue or StatusOS.Cancelada)
             throw new DomainException($"Não é possível {acao}: OS está no status {Status}.");
     }
 
