@@ -204,4 +204,99 @@ public class OrdemDeServicoTests
         os.PodeCancelar.Should().BeTrue();
         if (finalizar) { os.Cancelar("x"); os.PodeCancelar.Should().BeFalse(); }
     }
+
+    [Fact]
+    public void SubstituirItens_invalido_mantem_itens_e_total()
+    {
+        var os = OrdemDeServico.Abrir(Guid.NewGuid(), Guid.NewGuid());
+        os.IncluirServico(Guid.NewGuid(), "a", Money.Brl(10m), 1);
+        FluentActions.Invoking(() => os.SubstituirItens(
+                new[] { (Guid.NewGuid(), "b", Money.Brl(20m), 2) },
+                new[] { (Guid.NewGuid(), "p", Money.Brl(5m), 0) }))
+            .Should().Throw<DomainException>();
+        os.Servicos.Should().ContainSingle(s => s.Descricao == "a");
+        os.ValorTotal.Amount.Should().Be(10m);
+    }
+
+    [Fact]
+    public void SubstituirItens_em_AguardandoPagamento_lanca()
+    {
+        var os = OrdemDeServico.Abrir(Guid.NewGuid(), Guid.NewGuid());
+        os.IncluirServico(Guid.NewGuid(), "a", Money.Brl(10m), 1);
+        os.EnviarParaAprovacao();
+        os.AprovarOrcamento();
+        FluentActions.Invoking(() => os.SubstituirItens(new[] { (Guid.NewGuid(), "b", Money.Brl(1m), 1) }, Array.Empty<(Guid, string, Money, int)>()))
+            .Should().Throw<DomainException>();
+    }
+
+    [Fact]
+    public void EnviarParaAprovacao_a_partir_de_EmDiagnostico_com_itens()
+    {
+        var os = OrdemDeServico.Abrir(Guid.NewGuid(), Guid.NewGuid());
+        os.IniciarDiagnostico();
+        os.IncluirServico(Guid.NewGuid(), "a", Money.Brl(10m), 1);
+        os.EnviarParaAprovacao();
+        os.Status.Should().Be(StatusOS.AguardandoAprovacao);
+    }
+
+    [Fact]
+    public void EnviarParaAprovacao_a_partir_de_EmExecucao_lanca()
+    {
+        var os = OrdemDeServico.Abrir(Guid.NewGuid(), Guid.NewGuid());
+        os.IncluirServico(Guid.NewGuid(), "a", Money.Brl(10m), 1);
+        os.EnviarParaAprovacao();
+        os.AprovarOrcamento();
+        os.ConfirmarPagamento();
+        FluentActions.Invoking(os.EnviarParaAprovacao).Should().Throw<DomainException>();
+    }
+
+    [Fact]
+    public void Cancelar_em_Finalizada_lanca()
+    {
+        var os = EmStatus(StatusOS.Finalizada);
+        FluentActions.Invoking(() => os.Cancelar("x")).Should().Throw<DomainException>();
+        os.Status.Should().Be(StatusOS.Finalizada);
+    }
+
+    [Theory]
+    [InlineData(StatusOS.Recebida)]
+    [InlineData(StatusOS.EmDiagnostico)]
+    [InlineData(StatusOS.AguardandoAprovacao)]
+    [InlineData(StatusOS.AguardandoPagamento)]
+    [InlineData(StatusOS.EmExecucao)]
+    [InlineData(StatusOS.Finalizada)]
+    [InlineData(StatusOS.Entregue)]
+    [InlineData(StatusOS.Cancelada)]
+    public void PodeCancelar_coerente_com_Cancelar(StatusOS status)
+    {
+        var os = EmStatus(status);
+        if (os.PodeCancelar)
+        {
+            os.Cancelar("x");
+            os.Status.Should().Be(StatusOS.Cancelada);
+        }
+        else
+        {
+            FluentActions.Invoking(() => os.Cancelar("x")).Should().Throw<DomainException>();
+        }
+    }
+
+    private static OrdemDeServico EmStatus(StatusOS status)
+    {
+        var os = OrdemDeServico.Abrir(Guid.NewGuid(), Guid.NewGuid());
+        if (status == StatusOS.Recebida) return os;
+        if (status == StatusOS.EmDiagnostico) { os.IniciarDiagnostico(); return os; }
+        os.IncluirServico(Guid.NewGuid(), "a", Money.Brl(10m), 1);
+        os.EnviarParaAprovacao();
+        if (status == StatusOS.AguardandoAprovacao) return os;
+        os.AprovarOrcamento();
+        if (status == StatusOS.AguardandoPagamento) return os;
+        os.ConfirmarPagamento();
+        if (status == StatusOS.EmExecucao) return os;
+        if (status == StatusOS.Cancelada) { os.Cancelar("x"); return os; }
+        os.Finalizar();
+        if (status == StatusOS.Finalizada) return os;
+        os.Entregar();
+        return os;
+    }
 }

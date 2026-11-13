@@ -116,12 +116,15 @@ public sealed class OrdemDeServico : AggregateRoot
         IEnumerable<(Guid pecaId, string descricao, Money valor, int qtd)> pecas)
     {
         GarantirEditavel("alterar itens");
+        var novosServicos = servicos.Select(s => ItemServico.Criar(Id, s.servicoId, s.descricao, s.valor, s.qtd)).ToList();
+        var novasPecas = pecas.Select(p => ItemPeca.Criar(Id, p.pecaId, p.descricao, p.valor, p.qtd)).ToList();
         _servicos.Clear();
         _pecas.Clear();
-        foreach (var s in servicos) _servicos.Add(ItemServico.Criar(Id, s.servicoId, s.descricao, s.valor, s.qtd));
-        foreach (var p in pecas) _pecas.Add(ItemPeca.Criar(Id, p.pecaId, p.descricao, p.valor, p.qtd));
+        _servicos.AddRange(novosServicos);
+        _pecas.AddRange(novasPecas);
         Recalcular();
     }
+
     public void Finalizar()
     {
         ExigirTransicao(StatusOS.EmExecucao, StatusOS.Finalizada, "Execução concluída.");
@@ -136,7 +139,7 @@ public sealed class OrdemDeServico : AggregateRoot
 
     public void Cancelar(string motivo)
     {
-        if (Status is StatusOS.Entregue or StatusOS.Cancelada)
+        if (!PodeCancelar)
             throw new DomainException($"OS no status {Status} não pode ser cancelada.");
         var anterior = Status;
         Status = StatusOS.Cancelada;
