@@ -7,7 +7,7 @@ public interface IOrdemDeServicoRepository
 
     /// <summary>
     /// Painel de OS ativas (Fase 2): exclui Finalizada/Entregue/Cancelada,
-    /// ordena por prioridade de status (EmExecucao &gt; AguardandoAprovacao &gt; EmDiagnostico &gt; Recebida)
+    /// ordena por prioridade de status (EmExecucao &gt; AguardandoPagamento &gt; AguardandoAprovacao &gt; EmDiagnostico &gt; Recebida)
     /// e, dentro do mesmo status, das mais antigas para as mais recentes (CriadaEm ascendente).
     /// </summary>
     Task<IReadOnlyList<OrdemDeServico>> ListarPainelAsync(int skip, int take, CancellationToken ct = default);

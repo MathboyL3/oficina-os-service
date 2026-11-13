@@ -35,6 +35,10 @@ public sealed class ErrorHandlingMiddleware
         {
             await Write(ctx, StatusCodes.Status422UnprocessableEntity, ex.Message);
         }
+        catch (ForbiddenException ex)
+        {
+            await Write(ctx, StatusCodes.Status403Forbidden, ex.Message);
+        }
         catch (AppException ex)
         {
             await Write(ctx, StatusCodes.Status400BadRequest, ex.Message);

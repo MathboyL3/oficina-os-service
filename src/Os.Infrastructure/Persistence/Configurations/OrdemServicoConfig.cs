@@ -22,6 +22,10 @@ public class OrdemServicoConfig : IEntityTypeConfiguration<OrdemDeServico>
         b.HasIndex(x => x.ClienteId);
         b.HasIndex(x => x.Status);
 
+        // xmin: a Saga e a API alteram a mesma OS; a segunda gravação concorrente falha com
+        // DbUpdateConcurrencyException (409 no middleware) em vez de sobrescrever.
+        b.Property<uint>("xmin").HasColumnType("xid").ValueGeneratedOnAddOrUpdate().IsConcurrencyToken();
+
         b.Ignore(x => x.DomainEvents);
         b.Ignore(x => x.TempoExecucao);
 
