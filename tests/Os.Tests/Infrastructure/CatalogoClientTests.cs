@@ -75,6 +75,79 @@ public class CatalogoClientTests
         await act.Should().ThrowAsync<HttpRequestException>();
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("null")]
+    public async Task ObterServico_200_com_corpo_vazio_ou_null_lanca(string corpo)
+    {
+        var (client, _) = Criar(_ => Json(HttpStatusCode.OK, corpo));
+
+        var act = () => client.ObterServicoAsync(Guid.NewGuid(), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<HttpRequestException>()).WithMessage("*resposta vazia do catálogo*");
+    }
+
+    [Fact]
+    public async Task ObterPeca_200_com_JSON_malformado_lanca_HttpRequestException_preservando_inner()
+    {
+        var (client, _) = Criar(_ => Json(HttpStatusCode.OK, "{nao-e-json"));
+
+        var act = () => client.ObterPecaAsync(Guid.NewGuid(), CancellationToken.None);
+
+        var ex = (await act.Should().ThrowAsync<HttpRequestException>()).Which;
+        ex.Message.Should().Contain("inválida");
+        ex.InnerException.Should().BeAssignableTo<System.Text.Json.JsonException>();
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    public async Task Obter_401_403_lanca_com_mensagem_de_credenciais_e_StatusCode(HttpStatusCode status)
+    {
+        var (client, _) = Criar(_ => new HttpResponseMessage(status));
+
+        var act = () => client.ObterServicoAsync(Guid.NewGuid(), CancellationToken.None);
+
+        var ex = (await act.Should().ThrowAsync<HttpRequestException>()).Which;
+        ex.Message.Should().Contain("recusou credenciais (401/403)");
+        ex.StatusCode.Should().Be(status);
+    }
+
+    [Fact]
+    public async Task Obter_5xx_nao_usa_mensagem_de_credenciais()
+    {
+        var (client, _) = Criar(_ => new HttpResponseMessage(HttpStatusCode.BadGateway));
+
+        var act = () => client.ObterPecaAsync(Guid.NewGuid(), CancellationToken.None);
+
+        var ex = (await act.Should().ThrowAsync<HttpRequestException>()).Which;
+        ex.Message.Should().NotContain("credenciais");
+        ex.StatusCode.Should().Be(HttpStatusCode.BadGateway);
+    }
+
+    [Theory]
+    [InlineData("http://host/exec")]
+    [InlineData("http://host/exec/")]
+    public async Task AddCatalogo_BaseUrl_com_path_preserva_o_path_nas_chamadas(string baseUrl)
+    {
+        var cfg = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Catalogo:BaseUrl"] = baseUrl })
+            .Build();
+        var id = Guid.NewGuid();
+        var stub = new StubHandler(_ => Json(HttpStatusCode.OK,
+            $$"""{"id":"{{id}}","nome":"S","valorBase":1,"tempoEstimadoMinutos":1,"ativo":true}"""));
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddCatalogo(cfg);
+        services.AddHttpClient<ICatalogoClient, CatalogoClient>()
+            .ConfigurePrimaryHttpMessageHandler(() => stub);
+        using var sp = services.BuildServiceProvider();
+
+        await sp.GetRequiredService<ICatalogoClient>().ObterServicoAsync(id, CancellationToken.None);
+
+        stub.Ultima!.RequestUri!.ToString().Should().Be($"http://host/exec/api/servicos/{id}");
+    }
+
     [Fact]
     public async Task ObterPeca_200_mapeia_campos_do_catalogo()
     {
