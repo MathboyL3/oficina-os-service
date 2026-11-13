@@ -1,0 +1,20 @@
+# .NET
+bin/
+obj/
+artifacts/
+coverage-report/
+TestResults/
+*.user
+.vs/
+
+# Env
+.env
+
+# Secrets
+appsettings.*.local.json
+
+# Roteiro de vídeo (apoio local, fora do repo)
+docs/ROTEIRO-VIDEO.md
+
+# Guia de entrega (apoio local, fora do repo)
+docs/ENTREGA.md
