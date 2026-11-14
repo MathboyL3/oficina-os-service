@@ -32,7 +32,7 @@ flowchart LR
   BIL --- MG[(MongoDB billing)]
   EXE --- PGEX[(PostgreSQL execucao)]
   BIL -- REST --> MP
-  OS & BIL & EXE -. APM, logs e traces .-> NR[(New Relic)]
+  OS & BIL & EXE -. APM e logs .-> NR[(New Relic)]
 ```
 
 Regra de ouro: **nenhum serviço acessa o banco de outro** (verdadeira em todos os componentes, inclusive a function de autenticação). A integração é por mensagens (RabbitMQ) e por REST: o os-service valida itens no catálogo do execucao-service e a `fiap-auth-lambda` consulta o cliente no os-service.
@@ -100,6 +100,7 @@ stateDiagram-v2
   Compensando --> Cancelada: todas as confirmacoes
   Compensando --> AguardandoAcaoManual: EstornoFalhou ou Timeout
   AguardandoAcaoManual --> Compensando: ReprocessarCompensacao
+  AguardandoAcaoManual --> Cancelada: confirmacoes pendentes chegam
   Finalizada --> [*]
   Cancelada --> [*]
 ```

@@ -229,7 +229,7 @@ Exclusões: `Program.cs`, `DependencyInjection.cs`, `Migrations`, `Persistence/C
 
 Pré-requisitos:
 - `fiap-infra-k8s` aplicado (namespace `oficina`, RabbitMQ com o Secret `rabbitmq-credentials` e Kong).
-- Variáveis de ambiente: `OS_DB_CONNECTION`, `JWT_SECRET`, `NEW_RELIC_LICENSE_KEY`, `GHCR_USER` e `GHCR_TOKEN` (PAT com `read:packages`).
+- Variáveis de ambiente: `OS_DB_CONNECTION`, `JWT_SECRET`, `OS_INTERNAL_SERVICE_KEY` (mesma chave da function, `OS_SERVICE_KEY`), `NEW_RELIC_LICENSE_KEY`, `GHCR_USER` e `GHCR_TOKEN` (PAT com `read:packages`).
 
 Passos (a partir da raiz do repo):
 1. `./k8s/bootstrap-secrets.ps1` — cria/atualiza os Secrets e o `ghcr-pull` de forma idempotente (falha se uma env obrigatória estiver vazia). `k8s/secret.example.yaml` documenta as chaves.
