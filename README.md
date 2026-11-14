@@ -143,7 +143,7 @@ Swagger na raiz (`/`). Rotas diretas em `http://localhost:5001`; via Kong: `http
 | 401 | header ausente ou chave errada |
 | 503 | `InternalApi__ServiceKey` não configurada (endpoint desligado) |
 
-O CPF aparece nos logs apenas mascarado (`***.***.***-XX`). Em produção a rota `/internal/*` não deve ser exposta pelo gateway público (Kong).
+O CPF aparece nos logs apenas mascarado (`***.***.***-XX`). Como a function roda no Railway (fora do cluster), ela chama o endpoint pelo gateway: `https://<kong>/os/internal/clientes/por-documento/{cpf}`. A rota é pública no Kong, mas sem a `X-Service-Key` correta responde 401; trate a chave como segredo e rotacione-a nos dois lados (Secret do K8s e variável `OS_SERVICE_KEY` da function).
 
 Coleção Postman: [`docs/oficina-os-service.postman_collection.json`](docs/oficina-os-service.postman_collection.json).
 
