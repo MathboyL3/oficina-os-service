@@ -24,3 +24,6 @@ docs/superpowers/
 
 # Código gerado pelo Reqnroll (regenerado no build)
 *.feature.cs
+
+# Secrets reais do Kubernetes
+k8s/secret.yaml

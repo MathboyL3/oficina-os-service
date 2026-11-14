@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# O namespace 'oficina' e os Secrets (secret.yaml, rabbitmq-credentials, ghcr-pull) ja existem/sao aplicados a parte.
+# O pipeline troca a imagem com: kustomize edit set image ghcr.io/mathboyl3/oficina-os-service=ghcr.io/<owner>/oficina-os-service:<tag>
+resources:
+  - configmap.yaml
+  - deployment.yaml
+  - service.yaml
+  - hpa.yaml
+
+images:
+  - name: ghcr.io/mathboyl3/oficina-os-service
+    newName: ghcr.io/mathboyl3/oficina-os-service
+    newTag: latest
