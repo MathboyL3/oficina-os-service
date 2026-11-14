@@ -66,7 +66,7 @@
           "visualization": { "id": "viz.line" },
           "layout": { "column": 1, "row": 1, "width": 6, "height": 3 },
           "rawConfiguration": {
-            "nrqlQueries": [{ "accountId": 8507486, "query": "SELECT average(cpuUsedCores) FROM K8sContainerSample WHERE containerName IN ('oficina-os-service','oficina-billing-service','oficina-execucao-service') FACET containerName TIMESERIES AUTO" }]
+            "nrqlQueries": [{ "accountId": 8507486, "query": "SELECT average(cpuUsedCores) FROM K8sContainerSample WHERE deploymentName IN ('oficina-os-service','oficina-billing-service','oficina-execucao-service') FACET deploymentName TIMESERIES AUTO" }]
           }
         },
         {
@@ -74,7 +74,7 @@
           "visualization": { "id": "viz.line" },
           "layout": { "column": 7, "row": 1, "width": 6, "height": 3 },
           "rawConfiguration": {
-            "nrqlQueries": [{ "accountId": 8507486, "query": "SELECT average(memoryUsedBytes) FROM K8sContainerSample WHERE containerName IN ('oficina-os-service','oficina-billing-service','oficina-execucao-service') FACET containerName TIMESERIES AUTO" }]
+            "nrqlQueries": [{ "accountId": 8507486, "query": "SELECT average(memoryUsedBytes) FROM K8sContainerSample WHERE deploymentName IN ('oficina-os-service','oficina-billing-service','oficina-execucao-service') FACET deploymentName TIMESERIES AUTO" }]
           }
         },
         {
@@ -104,7 +104,7 @@
           "visualization": { "id": "viz.line" },
           "layout": { "column": 1, "row": 1, "width": 6, "height": 3 },
           "rawConfiguration": {
-            "nrqlQueries": [{ "accountId": 8507486, "query": "SELECT count(*) AS 'OS criadas' FROM Transaction WHERE appName IN ('oficina-os-service','oficina-billing-service','oficina-execucao-service') AND request.method='POST' AND name LIKE '%OrdensServico%' AND request.method='POST' TIMESERIES 1 day SINCE 7 days ago" }]
+            "nrqlQueries": [{ "accountId": 8507486, "query": "SELECT count(*) AS 'OS criadas' FROM Transaction WHERE appName IN ('oficina-os-service','oficina-billing-service','oficina-execucao-service') AND request.method = 'POST' AND name = 'WebTransaction/MVC/OrdensServico/Abrir' TIMESERIES 1 day SINCE 7 days ago" }]
           }
         },
         {
