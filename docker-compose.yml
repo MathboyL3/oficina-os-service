@@ -43,7 +43,7 @@ services:
       RabbitMq__Port: "5672"
       RabbitMq__Username: guest
       RabbitMq__Password: guest
-      NEW_RELIC_LICENSE_KEY: ""
+      NEW_RELIC_LICENSE_KEY: ${NEW_RELIC_LICENSE_KEY:-}
       ConnectionStrings__Postgres: Host=os-db;Port=5432;Database=oficina_os;Username=oficina;Password=oficina
       Catalogo__BaseUrl: http://execucao-api:8080
     ports:

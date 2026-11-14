@@ -23,7 +23,8 @@ WORKDIR /app
 # --- New Relic .NET agent (APM) ---
 # Instalado a partir do tarball oficial (evita a chave apt legada DSA1024).
 # A ativação é por variáveis de ambiente (CORECLR_*) + NEW_RELIC_LICENSE_KEY,
-# injetadas em runtime via K8s Secret — nada sensível fica na imagem.
+# injetadas em runtime via K8s Secret — nenhum segredo de produção fica na imagem;
+# o appsettings.Development.json contém só valores de desenvolvimento.
 RUN apt-get update && apt-get install -y --no-install-recommends wget ca-certificates \
     && mkdir -p /usr/local/newrelic-dotnet-agent \
     && wget -qO /tmp/nr.tar.gz "https://download.newrelic.com/dot_net_agent/latest_release/newrelic-dotnet-agent_amd64.tar.gz" \
@@ -38,10 +39,8 @@ ENV CORECLR_ENABLE_PROFILING=1 \
     CORECLR_NEWRELIC_HOME=/usr/local/newrelic-dotnet-agent \
     NEW_RELIC_APP_NAME="oficina-os-service"
 
-# Usuário não-root (princípio do menor privilégio)
-RUN (getent group app  > /dev/null || groupadd --system --gid 1001 app) && \
-    (id -u app         > /dev/null 2>&1 || useradd --system --uid 1001 --gid app --shell /sbin/nologin app) && \
-    mkdir -p /usr/local/newrelic-dotnet-agent/logs && chown -R app:app /usr/local/newrelic-dotnet-agent
+# Usa o usuário não-root `app` (uid 1654) da imagem base aspnet
+RUN mkdir -p /usr/local/newrelic-dotnet-agent/logs && chown -R app:app /usr/local/newrelic-dotnet-agent
 
 COPY --from=build --chown=app:app /app/publish .
 
