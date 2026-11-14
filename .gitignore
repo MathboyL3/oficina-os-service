@@ -21,3 +21,6 @@ docs/ENTREGA.md
 
 # Specs e planos (apoio local, fora do repo)
 docs/superpowers/
+
+# Código gerado pelo Reqnroll (regenerado no build)
+*.feature.cs

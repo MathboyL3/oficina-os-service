@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Os.Application.Common;
 using Os.Domain.Common;
 using Microsoft.EntityFrameworkCore;
@@ -43,8 +43,8 @@ public sealed class ErrorHandlingMiddleware
         {
             await Write(ctx, StatusCodes.Status400BadRequest, ex.Message);
         }
-        // Conflito de concorrência do xmin (estoque) ou violação de índice único
-        // (ex.: uma execução por OS): a requisição é repetível, não é erro interno.
+        // Conflito de concorrência otimista (xmin da OS / Version da saga) ou violação de índice único
+        // (ex.: e-mail ou documento já cadastrado): a requisição é repetível, não é erro interno.
         catch (DbUpdateConcurrencyException ex)
         {
             _log.LogWarning(ex, "Conflito de concorrência ao salvar");

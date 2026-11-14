@@ -423,6 +423,49 @@ public class OrdemServicoUseCasesTests
     }
 
     [Fact]
+    public async Task StatusPublico_timeout_do_catalogo_estimativa_null()
+    {
+        var servicoId = Guid.NewGuid();
+        var os = OsEmExecucao(servicoId, 1);
+        _catalogo.Setup(c => c.ObterServicoAsync(servicoId, It.IsAny<CancellationToken>())).ThrowsAsync(new TaskCanceledException("timeout do HttpClient"));
+
+        (await Uc().ObterStatusPublicoAsync(os.Id)).EstimativaConclusao.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task StatusPublico_timeout_do_polly_estimativa_null()
+    {
+        var servicoId = Guid.NewGuid();
+        var os = OsEmExecucao(servicoId, 1);
+        _catalogo.Setup(c => c.ObterServicoAsync(servicoId, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new Polly.Timeout.TimeoutRejectedException("timeout da resiliência"));
+
+        (await Uc().ObterStatusPublicoAsync(os.Id)).EstimativaConclusao.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task StatusPublico_cancelado_pelo_chamador_propaga()
+    {
+        var servicoId = Guid.NewGuid();
+        var os = OsEmExecucao(servicoId, 1);
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        _catalogo.Setup(c => c.ObterServicoAsync(servicoId, It.IsAny<CancellationToken>())).ThrowsAsync(new TaskCanceledException());
+
+        await FluentActions.Awaiting(() => Uc().ObterStatusPublicoAsync(os.Id, cts.Token)).Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [Fact]
+    public async Task DefinirItens_item_nulo_no_array_400()
+    {
+        var os = NovaOs();
+
+        await FluentActions.Awaiting(() => Uc().DefinirItensAsync(os.Id,
+                new DefinirItensRequest(new ItemQtdRequest[] { null! }, Array.Empty<ItemQtdRequest>())))
+            .Should().ThrowAsync<AppException>();
+        _uow.Verify(u => u.CommitAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+    [Fact]
     public async Task StatusPublico_fora_de_execucao_nao_consulta_catalogo_e_servico_removido_conta_zero()
     {
         var os = NovaOs();

@@ -1,4 +1,5 @@
 using MassTransit;
+using Polly.Timeout;
 using Oficina.Contracts;
 using Os.Application.Catalogo;
 using Os.Application.Common;
@@ -96,8 +97,12 @@ public sealed class OrdemServicoUseCases
         var servicosReq = req.Servicos ?? Array.Empty<ItemQtdRequest>();
         var pecasReq = req.Pecas ?? Array.Empty<ItemQtdRequest>();
         foreach (var i in servicosReq.Concat(pecasReq))
+        {
+            if (i is null)
+                throw new AppException("Item nulo na lista de itens.");
             if (i.Quantidade <= 0)
                 throw new AppException($"Quantidade inválida para o item {i.Id}: deve ser maior que zero.");
+        }
 
         var servicos = new List<(Guid, string, Money, int)>();
         foreach (var i in servicosReq)
@@ -185,9 +190,9 @@ public sealed class OrdemServicoUseCases
         await _uow.CommitAsync(ct);
     }
 
-    public async Task<IReadOnlyList<PendenciaResponse>> ListarPendenciasAsync(CancellationToken ct = default)
+    public async Task<IReadOnlyList<PendenciaResponse>> ListarPendenciasAsync(string estado = EstadosSaga.AguardandoAcaoManual, CancellationToken ct = default)
     {
-        var sagas = await _saga.ListarPorEstadoAsync(EstadosSaga.AguardandoAcaoManual, ct);
+        var sagas = await _saga.ListarPorEstadoAsync(estado, ct);
         return sagas.Select(s => new PendenciaResponse(s.CorrelationId, s.ToResumo())).ToList();
     }
 
@@ -223,8 +228,10 @@ public sealed class OrdemServicoUseCases
                 }
                 estimativa = os.IniciadaExecucaoEm?.AddMinutes(totalMin);
             }
-            catch (HttpRequestException)
+            catch (Exception ex) when (ex is HttpRequestException or TimeoutRejectedException
+                                       || (ex is TaskCanceledException && !ct.IsCancellationRequested))
             {
+                // Falha/timeout do catálogo (inclui o timeout do HttpClient e do Polly): sem estimativa.
                 estimativa = null;
             }
         }
