@@ -3,6 +3,7 @@ using MassTransit;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Oficina.Contracts;
+using Os.Application.UseCases.OrdensServico;
 using Os.Domain.OrdensServico;
 
 namespace Os.Application.Saga;
@@ -213,8 +214,8 @@ public sealed class OrdemServicoStateMachine : MassTransitStateMachine<OsSagaSta
         => c.Publish(new GerarOrcamento(c.Saga.CorrelationId, DateTime.UtcNow, c.Message.ClienteId, c.Message.Itens, c.Message.ValorTotal));
 
     private static List<ItemOrcamento> Itens(OsSagaState s) => JsonSerializer.Deserialize<List<ItemOrcamento>>(s.ItensJson) ?? new();
-    private static IReadOnlyList<ItemPecaQtd> Pecas(OsSagaState s) => Itens(s).Where(i => i.Tipo == "Peca").Select(i => new ItemPecaQtd(i.ItemId, i.Quantidade)).ToList();
-    private static IReadOnlyList<ItemServicoQtd> Servicos(OsSagaState s) => Itens(s).Where(i => i.Tipo == "Servico").Select(i => new ItemServicoQtd(i.ItemId, i.Quantidade)).ToList();
+    private static IReadOnlyList<ItemPecaQtd> Pecas(OsSagaState s) => Itens(s).Where(i => i.Tipo == TipoItem.Peca).Select(i => new ItemPecaQtd(i.ItemId, i.Quantidade)).ToList();
+    private static IReadOnlyList<ItemServicoQtd> Servicos(OsSagaState s) => Itens(s).Where(i => i.Tipo == TipoItem.Servico).Select(i => new ItemServicoQtd(i.ItemId, i.Quantidade)).ToList();
 
     private static Task Aplicar<T>(BehaviorContext<OsSagaState, T> c, string nome, Action<OrdemDeServico> acao) where T : class
     {
