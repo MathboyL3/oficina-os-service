@@ -8,9 +8,9 @@ using Os.Domain.OrdensServico;
 namespace Os.Application.Saga;
 
 /// <summary>
-/// Orquestrador da Saga da Ordem de ServiÃ§o (abre â†’ orÃ§amento â†’ aprovaÃ§Ã£o â†’ pagamento â†’
-/// reserva de peÃ§as â†’ execuÃ§Ã£o), com compensaÃ§Ã£o em cada etapa que pode falhar.
-/// Estado persistido em os_saga_state; timeouts via scheduler (Quartz em produÃ§Ã£o).
+/// Orquestrador da Saga da Ordem de Serviço (abre → orçamento → aprovação → pagamento →
+/// reserva de peças → execução), com compensação em cada etapa que pode falhar.
+/// Estado persistido em os_saga_state; timeouts via scheduler (Quartz em produção).
 /// </summary>
 public sealed class OrdemServicoStateMachine : MassTransitStateMachine<OsSagaState>
 {
@@ -80,7 +80,7 @@ public sealed class OrdemServicoStateMachine : MassTransitStateMachine<OsSagaSta
             s.Received = r => r.CorrelateById(c => c.Message.OrdemServicoId);
         });
 
-        // Eventos tardios/duplicados em estados que nÃ£o os tratam sÃ£o descartados (Â§4.5).
+        // Eventos tardios/duplicados em estados que não os tratam são descartados (§4.5).
         OnUnhandledEvent(ctx => ctx.Ignore());
 
         Initially(
@@ -90,7 +90,7 @@ public sealed class OrdemServicoStateMachine : MassTransitStateMachine<OsSagaSta
                 .ThenAsync(EnviarGerarOrcamento)
                 .Schedule(Timeout, c => Tmo(c.Saga, "GerandoOrcamento"), _ => to.GerandoOrcamento)
                 .Then(c => Log(c, "GerandoOrcamento")).TransitionTo(GerandoOrcamento),
-            // Cancelamento antes de OrdemServicoAberta ser consumido: cria a instÃ¢ncia jÃ¡ compensando.
+            // Cancelamento antes de OrdemServicoAberta ser consumido: cria a instância já compensando.
             Compensar(When(CancSolicitado), c => c.Message.Motivo, to));
 
         During(Recebida,
@@ -105,8 +105,8 @@ public sealed class OrdemServicoStateMachine : MassTransitStateMachine<OsSagaSta
                 .Then(c => c.Saga.OrcamentoId = c.Message.OrcamentoId)
                 .Schedule(Timeout, c => Tmo(c.Saga, "AguardandoAprovacao"), _ => to.AguardandoAprovacao)
                 .Then(c => Log(c, "AguardandoAprovacao")).TransitionTo(AguardandoAprovacao),
-            Compensar(When(OrcFalhou), c => $"Falha ao gerar orÃ§amento: {c.Message.Motivo}", to),
-            Compensar(When(Timeout.Received, EtapaAtual("GerandoOrcamento")), _ => "Timeout na geraÃ§Ã£o do orÃ§amento.", to));
+            Compensar(When(OrcFalhou), c => $"Falha ao gerar orçamento: {c.Message.Motivo}", to),
+            Compensar(When(Timeout.Received, EtapaAtual("GerandoOrcamento")), _ => "Timeout na geração do orçamento.", to));
 
         During(AguardandoAprovacao,
             When(OrcAprovado).Unschedule(Timeout)
@@ -114,8 +114,8 @@ public sealed class OrdemServicoStateMachine : MassTransitStateMachine<OsSagaSta
                 .Publish(c => new CriarCobranca(c.Saga.CorrelationId, DateTime.UtcNow, c.Message.OrcamentoId, c.Saga.ValorTotal))
                 .Schedule(Timeout, c => Tmo(c.Saga, "AguardandoPagamento"), _ => to.AguardandoPagamento)
                 .Then(c => Log(c, "AguardandoPagamento")).TransitionTo(AguardandoPagamento),
-            Compensar(When(OrcRecusado), c => $"OrÃ§amento recusado: {c.Message.Motivo}", to),
-            Compensar(When(Timeout.Received, EtapaAtual("AguardandoAprovacao")), _ => "OrÃ§amento expirou sem aprovaÃ§Ã£o.", to));
+            Compensar(When(OrcRecusado), c => $"Orçamento recusado: {c.Message.Motivo}", to),
+            Compensar(When(Timeout.Received, EtapaAtual("AguardandoAprovacao")), _ => "Orçamento expirou sem aprovação.", to));
 
         During(AguardandoPagamento,
             When(CobCriada).Then(c => { c.Saga.PagamentoId = c.Message.PagamentoId; c.Saga.LinkPagamento = c.Message.LinkPagamento; }),
@@ -125,7 +125,7 @@ public sealed class OrdemServicoStateMachine : MassTransitStateMachine<OsSagaSta
                 .Schedule(Timeout, c => Tmo(c.Saga, "ReservandoPecas"), _ => to.ReservandoPecas)
                 .Then(c => Log(c, "ReservandoPecas")).TransitionTo(ReservandoPecas),
             Compensar(When(PagRecusado), c => $"Pagamento recusado: {c.Message.Motivo}", to),
-            Compensar(When(Timeout.Received, EtapaAtual("AguardandoPagamento")), _ => "Pagamento nÃ£o confirmado no prazo.", to));
+            Compensar(When(Timeout.Received, EtapaAtual("AguardandoPagamento")), _ => "Pagamento não confirmado no prazo.", to));
 
         During(ReservandoPecas,
             When(Reservadas).Unschedule(Timeout)
@@ -134,19 +134,19 @@ public sealed class OrdemServicoStateMachine : MassTransitStateMachine<OsSagaSta
                 .Publish(c => new EnfileirarExecucao(c.Saga.CorrelationId, DateTime.UtcNow, Servicos(c.Saga), Pecas(c.Saga)))
                 .Schedule(Timeout, c => Tmo(c.Saga, "EmExecucao"), _ => to.EmExecucao)
                 .Then(c => Log(c, "EmExecucao")).TransitionTo(EmExecucao),
-            Compensar(When(ReservaFalhou), c => $"Falha na reserva de peÃ§as: {c.Message.Motivo}", to),
-            Compensar(When(Timeout.Received, EtapaAtual("ReservandoPecas")), _ => "Timeout na reserva de peÃ§as.", to));
+            Compensar(When(ReservaFalhou), c => $"Falha na reserva de peças: {c.Message.Motivo}", to),
+            Compensar(When(Timeout.Received, EtapaAtual("ReservandoPecas")), _ => "Timeout na reserva de peças.", to));
 
         During(EmExecucao,
-            When(ExecIniciada).ThenAsync(c => Aplicar(c, "Observacao", os => os.RegistrarObservacao("DiagnÃ³stico/reparo iniciado pelo mecÃ¢nico."))),
+            When(ExecIniciada).ThenAsync(c => Aplicar(c, "Observacao", os => os.RegistrarObservacao("Diagnóstico/reparo iniciado pelo mecânico."))),
             When(ExecFinalizada).Unschedule(Timeout)
                 .ThenAsync(c => Aplicar(c, "Finalizar", os => { if (os.Status == StatusOS.EmExecucao) os.Finalizar(); }))
                 .Publish(c => new OrdemServicoFinalizada(c.Saga.CorrelationId, DateTime.UtcNow))
                 .Then(c => Log(c, "Finalizada")).TransitionTo(Finalizada).Finalize(),
-            Compensar(When(ExecFalhou), c => $"Falha na execuÃ§Ã£o: {c.Message.Motivo}", to),
-            // EmExecucao: timeout sÃ³ alerta (nÃ£o compensa) â€” Â§4.2.
+            Compensar(When(ExecFalhou), c => $"Falha na execução: {c.Message.Motivo}", to),
+            // EmExecucao: timeout só alerta (não compensa) — §4.2.
             When(Timeout.Received, EtapaAtual("EmExecucao")).Then(c => c.GetServiceOrCreateInstance<ILogger<OrdemServicoStateMachine>>()
-                .LogError("saga.alerta {alerta} execuÃ§Ã£o parada hÃ¡ mais de {Prazo} os={OsId}", "saga_em_execucao_atrasada", to.EmExecucao, c.Saga.CorrelationId)));
+                .LogError("saga.alerta {alerta} execução parada há mais de {Prazo} os={OsId}", "saga_em_execucao_atrasada", to.EmExecucao, c.Saga.CorrelationId)));
 
         During(new[] { Recebida, GerandoOrcamento, AguardandoAprovacao, AguardandoPagamento, ReservandoPecas, EmExecucao },
             Compensar(When(CancSolicitado), c => c.Message.Motivo, to));
@@ -160,7 +160,7 @@ public sealed class OrdemServicoStateMachine : MassTransitStateMachine<OsSagaSta
             When(EstornoFalhouEv).Unschedule(Timeout)
                 .ThenAsync(c => IrParaAcaoManual(c, $"estorno falhou: {c.Message.Motivo}")).TransitionTo(AguardandoAcaoManual),
             When(Timeout.Received, EtapaAtual("Compensando")).Unschedule(Timeout)
-                .ThenAsync(c => IrParaAcaoManual(c, "compensaÃ§Ã£o nÃ£o confirmada no prazo")).TransitionTo(AguardandoAcaoManual));
+                .ThenAsync(c => IrParaAcaoManual(c, "compensação não confirmada no prazo")).TransitionTo(AguardandoAcaoManual));
 
         During(AguardandoAcaoManual,
             ConcluirSeOk(When(OrcCancelado).Then(c => c.Saga.OrcamentoCanceladoOk = true)),
@@ -173,9 +173,9 @@ public sealed class OrdemServicoStateMachine : MassTransitStateMachine<OsSagaSta
         SetCompletedWhenFinalized();
     }
 
-    // ---------------------------------------------------------------- blocos reutilizÃ¡veis (binder)
+    // ---------------------------------------------------------------- blocos reutilizáveis (binder)
 
-    /// <summary>Entrada em Compensando: grava motivo/flags, publica compensaÃ§Ãµes e agenda o timeout da etapa.</summary>
+    /// <summary>Entrada em Compensando: grava motivo/flags, publica compensações e agenda o timeout da etapa.</summary>
     private EventActivityBinder<OsSagaState, T> Compensar<T>(EventActivityBinder<OsSagaState, T> b,
         Func<BehaviorContext<OsSagaState, T>, string> motivo, SagaTimeouts to) where T : class
         => b.Unschedule(Timeout)
@@ -184,7 +184,7 @@ public sealed class OrdemServicoStateMachine : MassTransitStateMachine<OsSagaSta
             .Then(c => Log(c, "Compensando"))
             .TransitionTo(Compensando);
 
-    /// <summary>ApÃ³s cada confirmaÃ§Ã£o: se as trÃªs compensaÃ§Ãµes estÃ£o ok, cancela a OS e encerra a Saga.</summary>
+    /// <summary>Após cada confirmação: se as três compensações estão ok, cancela a OS e encerra a Saga.</summary>
     private EventActivityBinder<OsSagaState, T> ConcluirSeOk<T>(EventActivityBinder<OsSagaState, T> b) where T : class
         => b.If(c => c.Saga.OrcamentoCanceladoOk && c.Saga.PecasLiberadasOk && c.Saga.EstornoOk,
             ok => ok.Unschedule(Timeout)
@@ -227,9 +227,9 @@ public sealed class OrdemServicoStateMachine : MassTransitStateMachine<OsSagaSta
             .LogInformation("saga.estado {SagaEstado} os={OsId}", estado, c.Saga.CorrelationId);
 
     /// <summary>
-    /// SÃ³ dados + publicaÃ§Ãµes (o agendamento do timeout fica no binder, em Compensar).
-    /// CurrentState ainda Ã© o estado de origem aqui (o TransitionTo vem depois).
-    /// LiberarPecas sai sempre que a origem Ã© ReservandoPecas/EmExecucao: a reserva pode ter sido
+    /// Só dados + publicações (o agendamento do timeout fica no binder, em Compensar).
+    /// CurrentState ainda é o estado de origem aqui (o TransitionTo vem depois).
+    /// LiberarPecas sai sempre que a origem é ReservandoPecas/EmExecucao: a reserva pode ter sido
     /// commitada no execucao-service com o PecasReservadas ainda em voo (o consumidor tolera "sem reserva").
     /// </summary>
     private static async Task PrepararCompensacao<T>(BehaviorContext<OsSagaState, T> c, string motivo) where T : class
@@ -247,11 +247,11 @@ public sealed class OrdemServicoStateMachine : MassTransitStateMachine<OsSagaSta
         if (s.PagamentoId is { } pag) await c.Publish(new EstornarPagamento(s.CorrelationId, DateTime.UtcNow, pag, motivo));
     }
 
-    /// <summary>Pagamento que chega depois de iniciada a compensaÃ§Ã£o sem pagamento conhecido â†’ estorna.</summary>
+    /// <summary>Pagamento que chega depois de iniciada a compensação sem pagamento conhecido → estorna.</summary>
     private static async Task CorridaPagamento<T>(BehaviorContext<OsSagaState, T> c, Guid pagamentoId) where T : class
     {
         if (c.Saga.PagamentoId == pagamentoId && c.Saga.EstornoOk) return; // estorno já confirmado (duplicado)
-        if (c.Saga.PagamentoId is not null && !c.Saga.EstornoOk) return; // estorno jÃ¡ pedido
+        if (c.Saga.PagamentoId is not null && !c.Saga.EstornoOk) return; // estorno já pedido
         c.Saga.PagamentoId = pagamentoId;
         c.Saga.EstornoOk = false;
         await c.Publish(new EstornarPagamento(c.Saga.CorrelationId, DateTime.UtcNow, pagamentoId, c.Saga.MotivoCancelamento ?? "OS cancelada"));
@@ -266,7 +266,7 @@ public sealed class OrdemServicoStateMachine : MassTransitStateMachine<OsSagaSta
 
     private static async Task IrParaAcaoManual<T>(BehaviorContext<OsSagaState, T> c, string motivo) where T : class
     {
-        await Aplicar(c, "Observacao", os => os.RegistrarObservacao($"compensaÃ§Ã£o pendente: {motivo}"));
+        await Aplicar(c, "Observacao", os => os.RegistrarObservacao($"compensação pendente: {motivo}"));
         c.GetServiceOrCreateInstance<ILogger<OrdemServicoStateMachine>>()
             .LogError("saga.alerta {alerta} saga.estado {SagaEstado} os={OsId} motivo={Motivo}", "saga_acao_manual", "AguardandoAcaoManual", c.Saga.CorrelationId, motivo);
     }

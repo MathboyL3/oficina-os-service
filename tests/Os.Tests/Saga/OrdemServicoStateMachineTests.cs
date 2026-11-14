@@ -67,7 +67,7 @@ public class OrdemServicoStateMachineTests
         (await f.Harness.Published.Any<EstornarPagamento>()).Should().BeFalse();
         (await f.Harness.Published.Any<LiberarPecas>()).Should().BeFalse();
         await f.Pub(new OrcamentoCancelado(os, T, orc));
-        (await f.Publicou<OrdemServicoCancelada>(x => x.Context.Message.Motivo.Contains("caro"))).Should().BeTrue();
+        (await f.Publicou<OrdemServicoCancelada>(x => x.Context.Message.Motivo.Contains("caro") && x.Context.Message.Motivo.Contains("Orçamento recusado"))).Should().BeTrue();
         (await f.Saga.NotExists(os, TimeSpan.FromSeconds(5))).Should().BeNull(); // Cancelada e removida
         f.Aplicacoes.Should().Contain("Cancelar");
     }
