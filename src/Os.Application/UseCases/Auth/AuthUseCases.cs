@@ -41,6 +41,15 @@ public sealed class AuthUseCases
         return usuario.ToResponse();
     }
 
+    /// <summary>Cria o primeiro usuário (sempre Gerente, ignorando o role do request). 409 se já existe algum usuário.</summary>
+    public async Task<UsuarioResponse> BootstrapAsync(CriarUsuarioRequest req, CancellationToken ct = default)
+    {
+        if (await _repo.ExisteAlgumAsync(ct))
+            throw new ConflictException("Bootstrap já realizado.");
+
+        return await CriarAsync(req with { Role = nameof(Role.Gerente) }, ct);
+    }
+
     public async Task<TokenResponse> LoginAsync(LoginRequest req, CancellationToken ct = default)
     {
         var usuario = await _repo.ObterPorEmailAsync(req.Email.Trim().ToLowerInvariant(), ct);

@@ -1,0 +1,108 @@
+using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
+using FluentAssertions;
+using Os.Application.DTOs;
+
+namespace Os.Tests.Integration;
+
+public sealed class InternalClientesIntegrationTests : IClassFixture<OsApiFactory>
+{
+    private const string Cpf = "52998224725";
+    private readonly OsApiFactory _factory;
+
+    public InternalClientesIntegrationTests(OsApiFactory factory) => _factory = factory;
+
+    private HttpRequestMessage Req(string cpf, string? chave = OsApiFactory.ServiceKey)
+    {
+        var req = new HttpRequestMessage(HttpMethod.Get, $"/internal/clientes/por-documento/{cpf}");
+        if (chave is not null) req.Headers.Add("X-Service-Key", chave);
+        return req;
+    }
+
+    private async Task<ClienteResponse> CriarClienteAsync(string documento)
+    {
+        var email = $"gerente-int-{Guid.NewGuid():N}@oficina.test";
+        await _factory.SemearUsuarioAsync(email, "Senha123!", Os.Domain.Identidade.Role.Gerente);
+        var client = _factory.CreateClient();
+        var login = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, "Senha123!"));
+        var token = (await login.Content.ReadFromJsonAsync<TokenResponse>())!.AccessToken;
+        client.DefaultRequestHeaders.Authorization = new("Bearer", token);
+        var resp = await client.PostAsJsonAsync("/api/clientes",
+            new CriarClienteRequest("Maria Silva", documento, $"maria-{Guid.NewGuid():N}@oficina.test", "11999999999"));
+        resp.EnsureSuccessStatusCode();
+        return (await resp.Content.ReadFromJsonAsync<ClienteResponse>())!;
+    }
+
+    [Fact]
+    public async Task ComChaveCorretaEClienteExistente_DeveRetornar200ComCamelCase()
+    {
+        var criado = await CriarClienteAsync("11144477735");
+
+        var resp = await _factory.CreateClient().SendAsync(Req("11144477735"));
+
+        resp.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+        var root = doc.RootElement;
+        root.EnumerateObject().Select(p => p.Name).Should().BeEquivalentTo(new[] { "id", "nome", "email" });
+        root.GetProperty("id").GetGuid().Should().Be(criado.Id);
+        root.GetProperty("nome").GetString().Should().Be("Maria Silva");
+        root.GetProperty("email").GetString().Should().Be(criado.Email);
+    }
+
+    [Fact]
+    public async Task CpfComMascara_DeveFuncionar()
+    {
+        await CriarClienteAsync("39053344705");
+
+        var resp = await _factory.CreateClient().SendAsync(Req("390.533.447-05"));
+
+        resp.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task ClienteInexistente_DeveRetornar404()
+    {
+        var resp = await _factory.CreateClient().SendAsync(Req("52998224725"));
+
+        resp.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task SemHeader_DeveRetornar401()
+    {
+        var resp = await _factory.CreateClient().SendAsync(Req(Cpf, chave: null));
+
+        resp.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task ChaveErrada_DeveRetornar401()
+    {
+        var resp = await _factory.CreateClient().SendAsync(Req(Cpf, "chave-errada"));
+
+        resp.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task ChaveNaoConfigurada_DeveRetornar503MesmoComHeaderVazio()
+    {
+        await using var factory = _factory.WithWebHostBuilder(b => b.UseSetting("InternalApi:ServiceKey", ""));
+
+        var resp = await factory.CreateClient().SendAsync(Req(Cpf, ""));
+
+        resp.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        (await resp.Content.ReadAsStringAsync()).Should().Contain("ServiceKey");
+    }
+
+    [Theory]
+    [InlineData("123")]
+    [InlineData("11111111111")]
+    [InlineData("52998224726")]
+    public async Task CpfInvalido_DeveRetornar400(string cpf)
+    {
+        var resp = await _factory.CreateClient().SendAsync(Req(cpf));
+
+        resp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+}

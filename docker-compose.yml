@@ -46,6 +46,7 @@ services:
       NEW_RELIC_LICENSE_KEY: ${NEW_RELIC_LICENSE_KEY:-}
       ConnectionStrings__Postgres: Host=os-db;Port=5432;Database=oficina_os;Username=oficina;Password=oficina
       Catalogo__BaseUrl: http://execucao-api:8080
+      InternalApi__ServiceKey: dev-service-key-trocar-em-producao-0123456789
     ports:
       - "5001:8080"
 

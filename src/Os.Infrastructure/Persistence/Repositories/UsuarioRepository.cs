@@ -14,6 +14,9 @@ public sealed class UsuarioRepository : IUsuarioRepository
     public Task<Usuario?> ObterPorIdAsync(Guid id, CancellationToken ct = default) =>
         _ctx.Usuarios.FirstOrDefaultAsync(u => u.Id == id, ct);
 
+    public Task<bool> ExisteAlgumAsync(CancellationToken ct = default) =>
+        _ctx.Usuarios.AnyAsync(ct);
+
     public Task AdicionarAsync(Usuario usuario, CancellationToken ct = default)
     {
         _ctx.Usuarios.Add(usuario);

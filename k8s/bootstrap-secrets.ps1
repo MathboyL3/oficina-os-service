@@ -15,11 +15,12 @@ function Aplicar([string[]]$criar) {
     $yaml | kubectl apply -f -
     if ($LASTEXITCODE -ne 0) { throw 'kubectl apply falhou' }
 }
-Exigir @('OS_DB_CONNECTION','JWT_SECRET','NEW_RELIC_LICENSE_KEY','GHCR_USER','GHCR_TOKEN')
+Exigir @('OS_DB_CONNECTION','JWT_SECRET','OS_INTERNAL_SERVICE_KEY','NEW_RELIC_LICENSE_KEY','GHCR_USER','GHCR_TOKEN')
 
 Aplicar @('create','secret','generic','oficina-os-service-secrets',
     "--from-literal=ConnectionStrings__Postgres=$(Env 'OS_DB_CONNECTION')",
     "--from-literal=Jwt__Secret=$(Env 'JWT_SECRET')",
+    "--from-literal=InternalApi__ServiceKey=$(Env 'OS_INTERNAL_SERVICE_KEY')",
     "--from-literal=NEW_RELIC_LICENSE_KEY=$(Env 'NEW_RELIC_LICENSE_KEY')")
 
 Aplicar @('create','secret','docker-registry','ghcr-pull',

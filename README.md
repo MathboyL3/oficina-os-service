@@ -113,7 +113,7 @@ Swagger na raiz (`/`). Rotas diretas em `http://localhost:5001`; via Kong: `http
 | Método e rota | Roles |
 |---|---|
 | `POST /api/auth/login` | anônimo |
-| `POST /api/auth/bootstrap` | anônimo (cria o primeiro usuário; 409 se o e-mail já existe) |
+| `POST /api/auth/bootstrap` | anônimo (só cria se NÃO existir nenhum usuário; o usuário criado é sempre Gerente, o `role` do body é ignorado; depois disso 409 `Bootstrap já realizado.`) |
 | `POST /api/auth/usuarios` | Gerente |
 | `POST /api/clientes`, `GET /api/clientes`, `GET /api/clientes/{id}`, `GET /api/clientes/por-documento/{documento}`, `PATCH /api/clientes/{id}` | Atendente, Gerente |
 | `DELETE /api/clientes/{id}` | Gerente |
@@ -128,6 +128,7 @@ Swagger na raiz (`/`). Rotas diretas em `http://localhost:5001`; via Kong: `http
 | `GET /api/ordens-servico/publico/{id}/status` | anônimo |
 | `GET /api/admin/sagas?estado=` (padrão `AguardandoAcaoManual`) | Gerente |
 | `POST /api/admin/ordens-servico/{id}/reprocessar-compensacao` | Gerente |
+| `GET /internal/clientes/por-documento/{cpf}` (uso interno, ver abaixo) | sem JWT; header `X-Service-Key` |
 | `GET /health/live`, `GET /health/ready` (Postgres + RabbitMQ) | anônimo |
 
 `POST .../cancelar` responde 409 se a Saga está em `Finalizada`/`Cancelada`/`Compensando`/`AguardandoAcaoManual`. Coleção Postman: [`docs/oficina-os-service.postman_collection.json`](docs/oficina-os-service.postman_collection.json).
@@ -140,10 +141,11 @@ Swagger na raiz (`/`). Rotas diretas em `http://localhost:5001`; via Kong: `http
 | `RabbitMq__Host/Port/VirtualHost/Username/Password` | `localhost`/`5672`/`/`/`guest`/`guest` |
 | `Catalogo__BaseUrl` | `http://localhost:5003` (execucao-service) |
 | `Jwt__Issuer/Audience/Secret/ExpirationMinutes` | `Oficina.Api`/`Oficina.Api`/obrigatório em produção/`60` |
+| `InternalApi__ServiceKey` | vazio (endpoints `/internal/*` respondem 503); valor de dev no `appsettings.Development.json`/docker-compose; em produção vem do Secret do K8s (`OS_INTERNAL_SERVICE_KEY` no `bootstrap-secrets.ps1`) e a mesma chave é configurada na function |
 | `Saga__Timeouts__GerandoOrcamento` · `AguardandoAprovacao` · `AguardandoPagamento` · `ReservandoPecas` · `EmExecucao` · `Compensando` | `00:05:00` · `3.00:00:00` · `1.00:00:00` · `00:05:00` · `30.00:00:00` · `00:15:00` |
 | `NEW_RELIC_LICENSE_KEY` | habilita o agente APM |
 
-Segredos (`Jwt__Secret`, connection string, license key) vêm de variável de ambiente / Secret do Kubernetes. O segredo do `appsettings.Development.json` é só de desenvolvimento.
+Segredos (`Jwt__Secret`, `InternalApi__ServiceKey`, connection string, license key) vêm de variável de ambiente / Secret do Kubernetes. O segredo do `appsettings.Development.json` é só de desenvolvimento.
 
 ## Rodando localmente
 
@@ -237,4 +239,4 @@ Pipeline em `.github/workflows/ci-cd.yml` (GitHub Actions).
 
 ## Integração com a fiap-auth-lambda
 
-Na Fase 4, `DATABASE_URL` da `fiap-auth-lambda` aponta para o database `oficina_os` (dono: este serviço), tabela `clientes` com o mesmo schema da Fase 3.
+Na Fase 4, a `fiap-auth-lambda` consulta o cliente por CPF via `GET /internal/clientes/por-documento/{cpf}` (header `X-Service-Key`), sem acessar o banco `oficina_os`, que pertence só a este serviço.

@@ -11,8 +11,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.IdentityModel.Tokens;
 using Moq;
+using Os.Application.Auth;
 using Os.Application.Catalogo;
 using Os.Application.Saga;
+using Os.Domain.Identidade;
 using Os.Infrastructure.Persistence;
 
 namespace Os.Tests.Integration;
@@ -35,6 +37,7 @@ public sealed class FakeSagaConsulta : ISagaConsulta
 public sealed class OsApiFactory : WebApplicationFactory<Program>
 {
     public const string Secret = "segredo-de-teste-com-mais-de-32-caracteres!";
+    public const string ServiceKey = "chave-de-servico-de-teste-0123456789";
     private readonly string _db = $"os-tests-{Guid.NewGuid()}";
 
     public Mock<ICatalogoClient> Catalogo { get; } = new();
@@ -44,6 +47,7 @@ public sealed class OsApiFactory : WebApplicationFactory<Program>
     {
         builder.UseEnvironment("Testing");
         builder.UseSetting("Jwt:Secret", Secret);
+        builder.UseSetting("InternalApi:ServiceKey", ServiceKey);
         builder.ConfigureTestServices(s =>
         {
             s.AddDbContext<OsDbContext>(o => o.UseInMemoryDatabase(_db));
@@ -53,6 +57,16 @@ public sealed class OsApiFactory : WebApplicationFactory<Program>
             s.AddSingleton<ISagaConsulta>(Sagas);
             s.AddMassTransitTestHarness();
         });
+    }
+
+    /// <summary>Semeia um usuário direto no banco (o bootstrap só funciona uma vez por banco).</summary>
+    public async Task SemearUsuarioAsync(string email, string senha, Role role)
+    {
+        using var scope = Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<OsDbContext>();
+        var hasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
+        db.Usuarios.Add(Usuario.Criar("Usuario Teste", email, hasher.Hash(senha), role));
+        await db.SaveChangesAsync();
     }
 
     public ITestHarness Harness => Services.GetRequiredService<ITestHarness>();

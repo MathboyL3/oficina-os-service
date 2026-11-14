@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Moq;
 using Os.Application.Auth;
 using Os.Application.Common;
@@ -76,5 +76,29 @@ public class AuthUseCasesTests
         _repo.Setup(r => r.ObterPorEmailAsync(It.IsAny<string>(), default)).ReturnsAsync((Usuario?)null);
         Func<Task> act = () => UC().CriarAsync(new CriarUsuarioRequest("X", "x@y.com", "1234", "Gerente"));
         await act.Should().ThrowAsync<AppException>().WithMessage("*8 caracteres*");
+    }
+
+    [Fact]
+    public async Task Bootstrap_SemUsuarios_DeveCriarSempreGerente()
+    {
+        _repo.Setup(r => r.ExisteAlgumAsync(default)).ReturnsAsync(false);
+        _repo.Setup(r => r.ObterPorEmailAsync(It.IsAny<string>(), default)).ReturnsAsync((Usuario?)null);
+        _hasher.Setup(h => h.Hash("12345678")).Returns("hash");
+
+        var resp = await UC().BootstrapAsync(new CriarUsuarioRequest("X", "x@y.com", "12345678", "Atendente"));
+
+        resp.Role.Should().Be("Gerente");
+        _repo.Verify(r => r.AdicionarAsync(It.Is<Usuario>(u => u.Role == Role.Gerente), default), Times.Once);
+    }
+
+    [Fact]
+    public async Task Bootstrap_ComUsuarioExistente_DeveLancarConflict()
+    {
+        _repo.Setup(r => r.ExisteAlgumAsync(default)).ReturnsAsync(true);
+
+        Func<Task> act = () => UC().BootstrapAsync(new CriarUsuarioRequest("X", "n@y.com", "12345678", "Gerente"));
+
+        await act.Should().ThrowAsync<ConflictException>().WithMessage("*Bootstrap já realizado*");
+        _repo.Verify(r => r.AdicionarAsync(It.IsAny<Usuario>(), default), Times.Never);
     }
 }

@@ -8,10 +8,12 @@ namespace Os.Tests.Integration;
 
 public sealed class ClientesIntegrationTests : IClassFixture<OsApiFactory>
 {
+    private readonly OsApiFactory _factory;
     private readonly HttpClient _client;
 
     public ClientesIntegrationTests(OsApiFactory factory)
     {
+        _factory = factory;
         _client = factory.CreateClient();
     }
 
@@ -76,8 +78,7 @@ public sealed class ClientesIntegrationTests : IClassFixture<OsApiFactory>
         var email = $"gerente-clientes-{Guid.NewGuid():N}@oficina.test";
         var senha = "Senha123!";
 
-        await _client.PostAsJsonAsync("/api/auth/bootstrap",
-            new CriarUsuarioRequest("Gerente Clientes", email, senha, "Gerente"));
+        await _factory.SemearUsuarioAsync(email, senha, Os.Domain.Identidade.Role.Gerente);
 
         var loginResponse = await _client.PostAsJsonAsync("/api/auth/login", new LoginRequest(email, senha));
         loginResponse.EnsureSuccessStatusCode();

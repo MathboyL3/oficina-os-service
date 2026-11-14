@@ -26,18 +26,14 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Bootstrap: cria o primeiro Gerente caso não exista nenhum usuário ainda.
+    /// Bootstrap: só cria se NÃO existir nenhum usuário; o usuário criado é sempre Gerente (o role do body é ignorado).
+    /// Depois do primeiro uso responde 409 "Bootstrap já realizado".
     /// </summary>
     [HttpPost("bootstrap")]
     [AllowAnonymous]
-    public async Task<ActionResult<UsuarioResponse>> Bootstrap(
-        CriarUsuarioRequest req,
-        [FromServices] Os.Domain.Identidade.IUsuarioRepository repo,
-        CancellationToken ct)
+    public async Task<ActionResult<UsuarioResponse>> Bootstrap(CriarUsuarioRequest req, CancellationToken ct)
     {
-        var any = await repo.ObterPorEmailAsync(req.Email.Trim().ToLowerInvariant(), ct);
-        if (any is not null) return Conflict("Bootstrap já consumido ou e-mail em uso.");
-        var u = await _uc.CriarAsync(req, ct);
+        var u = await _uc.BootstrapAsync(req, ct);
         return CreatedAtAction(nameof(Bootstrap), new { id = u.Id }, u);
     }
 }
