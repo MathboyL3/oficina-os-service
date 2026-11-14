@@ -16,6 +16,8 @@ using Os.Application.Catalogo;
 using Os.Application.Saga;
 using Os.Domain.Identidade;
 using Os.Infrastructure.Persistence;
+using Serilog.Core;
+using Serilog.Events;
 
 namespace Os.Tests.Integration;
 
@@ -34,6 +36,17 @@ public sealed class FakeSagaConsulta : ISagaConsulta
         Task.FromResult<IReadOnlyList<OsSagaState>>(_sagas.Values.Where(s => s.CurrentState == estado).ToList());
 }
 
+/// <summary>Sink de teste: guarda os eventos Serilog renderizados (mensagem + propriedades) para asserções sobre o que é logado.</summary>
+public sealed class ColetorDeLogs : ILogEventSink
+{
+    private readonly System.Collections.Concurrent.ConcurrentQueue<string> _linhas = new();
+
+    public IReadOnlyCollection<string> Linhas => _linhas.ToArray();
+
+    public void Emit(LogEvent logEvent) =>
+        _linhas.Enqueue(logEvent.RenderMessage() + ' ' + string.Join(' ', logEvent.Properties.Select(p => $"{p.Key}={p.Value}")));
+}
+
 public sealed class OsApiFactory : WebApplicationFactory<Program>
 {
     public const string Secret = "segredo-de-teste-com-mais-de-32-caracteres!";
@@ -42,6 +55,7 @@ public sealed class OsApiFactory : WebApplicationFactory<Program>
 
     public Mock<ICatalogoClient> Catalogo { get; } = new();
     public FakeSagaConsulta Sagas { get; } = new();
+    public ColetorDeLogs Logs { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -55,6 +69,7 @@ public sealed class OsApiFactory : WebApplicationFactory<Program>
             s.AddSingleton(Catalogo.Object);
             s.RemoveAll<ISagaConsulta>();
             s.AddSingleton<ISagaConsulta>(Sagas);
+            s.AddSingleton<ILogEventSink>(Logs);
             s.AddMassTransitTestHarness();
         });
     }

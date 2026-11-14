@@ -16,6 +16,10 @@ public class AuthUseCasesTests
     private readonly Mock<IJwtTokenService> _jwt = new();
     private readonly Mock<IUnitOfWork> _uow = new();
 
+    public AuthUseCasesTests() =>
+        _uow.Setup(u => u.ExecutarSerializadoAsync(It.IsAny<long>(), It.IsAny<Func<CancellationToken, Task<UsuarioResponse>>>(), It.IsAny<CancellationToken>()))
+            .Returns((long _, Func<CancellationToken, Task<UsuarioResponse>> acao, CancellationToken ct) => acao(ct));
+
     private AuthUseCases UC() => new(_repo.Object, _hasher.Object, _jwt.Object, _uow.Object);
 
     [Fact]

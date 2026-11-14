@@ -131,7 +131,9 @@ Swagger na raiz (`/`). Rotas diretas em `http://localhost:5001`; via Kong: `http
 | `GET /internal/clientes/por-documento/{cpf}` (uso interno, ver abaixo) | sem JWT; header `X-Service-Key` |
 | `GET /health/live`, `GET /health/ready` (Postgres + RabbitMQ) | anônimo |
 
-`POST .../cancelar` responde 409 se a Saga está em `Finalizada`/`Cancelada`/`Compensando`/`AguardandoAcaoManual`. ### Endpoint interno (fiap-auth-lambda)
+`POST .../cancelar` responde 409 se a Saga está em `Finalizada`/`Cancelada`/`Compensando`/`AguardandoAcaoManual`.
+
+### Endpoint interno (fiap-auth-lambda)
 
 `GET /internal/clientes/por-documento/{cpf}` é chamado pela Railway Function de autenticação por CPF (`fiap-auth-lambda`), que não acessa mais o banco deste serviço. Não usa JWT: exige o header `X-Service-Key` igual a `InternalApi__ServiceKey` (comparação em tempo constante). O `{cpf}` aceita com ou sem máscara.
 

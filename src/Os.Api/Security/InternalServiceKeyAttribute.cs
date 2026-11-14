@@ -19,14 +19,21 @@ public sealed class InternalServiceKeyAttribute : TypeFilterAttribute
 public sealed class ServiceKeyFilter : IAsyncAuthorizationFilter
 {
     private readonly IConfiguration _config;
-    public ServiceKeyFilter(IConfiguration config) => _config = config;
+    private readonly ILogger<ServiceKeyFilter> _logger;
+
+    public ServiceKeyFilter(IConfiguration config, ILogger<ServiceKeyFilter> logger)
+    {
+        _config = config;
+        _logger = logger;
+    }
 
     public Task OnAuthorizationAsync(AuthorizationFilterContext context)
     {
         var expected = _config[InternalServiceKeyAttribute.ConfigKey];
         if (string.IsNullOrWhiteSpace(expected))
         {
-            context.Result = Erro(StatusCodes.Status503ServiceUnavailable, "Endpoint interno indisponível: InternalApi:ServiceKey não configurada.");
+            _logger.LogWarning("Endpoint interno indisponível: {ConfigKey} não configurada.", InternalServiceKeyAttribute.ConfigKey);
+            context.Result = Erro(StatusCodes.Status503ServiceUnavailable, "Serviço indisponível.");
             return Task.CompletedTask;
         }
 

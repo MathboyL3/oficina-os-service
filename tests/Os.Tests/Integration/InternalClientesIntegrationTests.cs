@@ -92,7 +92,32 @@ public sealed class InternalClientesIntegrationTests : IClassFixture<OsApiFactor
         var resp = await factory.CreateClient().SendAsync(Req(Cpf, ""));
 
         resp.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
-        (await resp.Content.ReadAsStringAsync()).Should().Contain("ServiceKey");
+        (await resp.Content.ReadAsStringAsync()).Should().Contain("Serviço indisponível.").And.NotContain("ServiceKey");
+    }
+
+    [Fact]
+    public async Task HeaderDuplicado_DeveRetornar401()
+    {
+        var req = Req(Cpf, chave: null);
+        req.Headers.Add("X-Service-Key", new[] { OsApiFactory.ServiceKey, OsApiFactory.ServiceKey });
+
+        var resp = await _factory.CreateClient().SendAsync(req);
+
+        resp.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task RequestLog_NaoDeveConterCpfEmClaro()
+    {
+        const string cpf = "29537995593";
+        await _factory.CreateClient().SendAsync(Req(cpf));
+        await _factory.CreateClient().SendAsync(Req("295.379.955-93"));
+
+        var linhas = _factory.Logs.Linhas.Where(l => l.Contains("/internal/clientes/por-documento")).ToList();
+        linhas.Should().NotBeEmpty();
+        linhas.Should().OnlyContain(l => !l.Contains(cpf) && !l.Contains("295.379.955-93") && !l.Contains("295.379.955"));
+        linhas.Should().OnlyContain(l => !l.Contains("RequestPath=") || l.Contains("RequestPath=\"/internal/clientes/por-documento/{valor}\""));
+        linhas.Should().Contain(l => l.Contains("/internal/clientes/por-documento/{valor}"));
     }
 
     [Theory]

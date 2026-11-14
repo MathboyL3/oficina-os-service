@@ -12,6 +12,8 @@ public sealed class AuthUseCases
     private readonly IUsuarioRepository _repo;
     private readonly IPasswordHasher _hasher;
     private readonly IJwtTokenService _jwt;
+    private const long ChaveLockBootstrap = 0x4F53_B007_57AAL;
+
     private readonly IUnitOfWork _uow;
 
     public AuthUseCases(IUsuarioRepository repo, IPasswordHasher hasher, IJwtTokenService jwt, IUnitOfWork uow)
@@ -42,13 +44,15 @@ public sealed class AuthUseCases
     }
 
     /// <summary>Cria o primeiro usuário (sempre Gerente, ignorando o role do request). 409 se já existe algum usuário.</summary>
-    public async Task<UsuarioResponse> BootstrapAsync(CriarUsuarioRequest req, CancellationToken ct = default)
-    {
-        if (await _repo.ExisteAlgumAsync(ct))
-            throw new ConflictException("Bootstrap já realizado.");
+    /// <remarks>Checagem + inserção serializadas por advisory lock: duas réplicas não criam dois "primeiros" usuários.</remarks>
+    public Task<UsuarioResponse> BootstrapAsync(CriarUsuarioRequest req, CancellationToken ct = default) =>
+        _uow.ExecutarSerializadoAsync(ChaveLockBootstrap, async token =>
+        {
+            if (await _repo.ExisteAlgumAsync(token))
+                throw new ConflictException("Bootstrap já realizado.");
 
-        return await CriarAsync(req with { Role = nameof(Role.Gerente) }, ct);
-    }
+            return await CriarAsync(req with { Role = nameof(Role.Gerente) }, token);
+        }, ct);
 
     public async Task<TokenResponse> LoginAsync(LoginRequest req, CancellationToken ct = default)
     {

@@ -3,6 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Text;
 using Os.Api.Middleware;
+using Os.Api.Security;
 using Os.Application;
 using Os.Infrastructure;
 using Os.Infrastructure.Auth;
@@ -22,9 +23,11 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Logging estruturado JSON (New Relic / observabilidade).
 // Emite uma linha JSON por evento, com TraceId/SpanId para correlacao com o APM.
-builder.Host.UseSerilog((ctx, cfg) => cfg
+builder.Host.UseSerilog((ctx, services, cfg) => cfg
     .ReadFrom.Configuration(ctx.Configuration)
+    .ReadFrom.Services(services)
     .Enrich.FromLogContext()
+    .Enrich.With<MascaraPathEnricher>()
     .Enrich.WithProperty("service.name", "oficina-os-service")
     .WriteTo.Console(new Serilog.Formatting.Compact.CompactJsonFormatter()));
 
@@ -139,7 +142,17 @@ app.Use(async (context, next) =>
 });
 
 // Log de requests HTTP (metodo, rota, status, latencia) em JSON.
-app.UseSerilogRequestLogging();
+// Rotas /internal/* carregam dados pessoais no path (CPF): o valor é mascarado no log (ver MascaraPathEnricher).
+app.UseSerilogRequestLogging(o =>
+{
+    o.GetMessageTemplateProperties = (http, path, elapsed, status) => new[]
+    {
+        new Serilog.Events.LogEventProperty("RequestMethod", new Serilog.Events.ScalarValue(http.Request.Method)),
+        new Serilog.Events.LogEventProperty("RequestPath", new Serilog.Events.ScalarValue(MascaraPathEnricher.Mascarar(path))),
+        new Serilog.Events.LogEventProperty("StatusCode", new Serilog.Events.ScalarValue(status)),
+        new Serilog.Events.LogEventProperty("Elapsed", new Serilog.Events.ScalarValue(elapsed))
+    };
+});
 
 // Tratamento global de erros (mapeia DomainException/AppException para HTTP)
 app.UseMiddleware<ErrorHandlingMiddleware>();
