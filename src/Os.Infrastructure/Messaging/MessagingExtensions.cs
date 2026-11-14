@@ -29,6 +29,7 @@ public static class MessagingExtensions
             services.AddQuartz(q =>
             {
                 q.SchedulerName = "oficina-os-saga";
+                q.SchedulerId = "AUTO";
                 q.UsePersistentStore(s =>
                 {
                     s.UseProperties = true;
@@ -73,7 +74,7 @@ public static class MessagingExtensions
             {
                 ep.UseMessageRetry(r =>
                 {
-                    r.Handle<DbUpdateConcurrencyException>();
+                    r.Handle<Exception>(e => e is DbUpdateConcurrencyException || e.InnerException is DbUpdateConcurrencyException);
                     r.Exponential(3, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(2));
                 });
                 ep.UseEntityFrameworkOutbox<OsDbContext>(ctx);

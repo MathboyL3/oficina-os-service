@@ -15,7 +15,6 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
-using RabbitMQ.Client;
 using Serilog;
 using Serilog.Context;
 
@@ -73,12 +72,9 @@ if (!builder.Environment.IsEnvironment("Testing"))
     builder.Services.AddDbContext<OsDbContext>(o => o.UseNpgsql(connStr));
     health.AddDbContextCheck<OsDbContext>("postgres", tags: new[] { "ready" });
 
-    var rabbit = RabbitMqOptions.FromConfiguration(builder.Configuration);
-    // O health check do pacote 9.0.0 não fecha a conexão que a factory dele cria (uma por probe),
-    // então a conexão vira singleton resolvido pelo DI e é fechada no shutdown do host.
-    builder.Services.AddSingleton<IConnection>(_ =>
-        rabbit.CreateConnectionFactory().CreateConnectionAsync().GetAwaiter().GetResult());
-    health.AddRabbitMQ(name: "rabbitmq", tags: new[] { "ready" });
+    // Conexão criada sob demanda pelo próprio check: RabbitMQ fora não derruba o startup (ready = 503).
+    builder.Services.AddSingleton(_ => new RabbitMqHealthCheck(RabbitMqOptions.FromConfiguration(builder.Configuration)));
+    health.AddCheck<RabbitMqHealthCheck>("rabbitmq", tags: new[] { "ready" });
 }
 
 // fluent validation
