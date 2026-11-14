@@ -131,7 +131,21 @@ Swagger na raiz (`/`). Rotas diretas em `http://localhost:5001`; via Kong: `http
 | `GET /internal/clientes/por-documento/{cpf}` (uso interno, ver abaixo) | sem JWT; header `X-Service-Key` |
 | `GET /health/live`, `GET /health/ready` (Postgres + RabbitMQ) | anônimo |
 
-`POST .../cancelar` responde 409 se a Saga está em `Finalizada`/`Cancelada`/`Compensando`/`AguardandoAcaoManual`. Coleção Postman: [`docs/oficina-os-service.postman_collection.json`](docs/oficina-os-service.postman_collection.json).
+`POST .../cancelar` responde 409 se a Saga está em `Finalizada`/`Cancelada`/`Compensando`/`AguardandoAcaoManual`. ### Endpoint interno (fiap-auth-lambda)
+
+`GET /internal/clientes/por-documento/{cpf}` é chamado pela Railway Function de autenticação por CPF (`fiap-auth-lambda`), que não acessa mais o banco deste serviço. Não usa JWT: exige o header `X-Service-Key` igual a `InternalApi__ServiceKey` (comparação em tempo constante). O `{cpf}` aceita com ou sem máscara.
+
+| Resposta | Quando |
+|---|---|
+| 200 `{"id","nome","email"}` | cliente encontrado |
+| 404 | CPF válido sem cliente |
+| 400 | CPF inválido |
+| 401 | header ausente ou chave errada |
+| 503 | `InternalApi__ServiceKey` não configurada (endpoint desligado) |
+
+O CPF aparece nos logs apenas mascarado (`***.***.***-XX`). Em produção a rota `/internal/*` não deve ser exposta pelo gateway público (Kong).
+
+Coleção Postman: [`docs/oficina-os-service.postman_collection.json`](docs/oficina-os-service.postman_collection.json).
 
 ## Configuração
 
