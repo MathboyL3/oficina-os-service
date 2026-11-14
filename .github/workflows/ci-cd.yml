@@ -9,7 +9,7 @@ on:
 
 concurrency:
   group: ci-cd-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -24,33 +24,52 @@ jobs:
   build-test-sonar:
     name: build-test-sonar
     runs-on: ubuntu-latest
-    env:
-      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
-      - uses: actions/setup-java@v4
-        with: { distribution: temurin, java-version: "17" }
       - uses: actions/setup-dotnet@v4
         with: { dotnet-version: "10.0.x" }
       - run: dotnet restore $SOLUTION
       - name: Sonar habilitado?
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
-          if [ -n "$SONAR_TOKEN" ]; then echo "SONAR_ENABLED=true" >> "$GITHUB_ENV"; fi
+          if [ -n "$SONAR_TOKEN" ]; then
+            echo "SONAR_ENABLED=true" >> "$GITHUB_ENV"
+          else
+            echo "::warning::SONAR_TOKEN ausente: analise Sonar pulada"
+          fi
+      - uses: actions/setup-java@v4
+        if: env.SONAR_ENABLED == 'true'
+        with: { distribution: temurin, java-version: "17" }
       - name: Sonar begin
         if: env.SONAR_ENABLED == 'true'
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_KEY: ${{ github.event.pull_request.number }}
+          PR_BRANCH: ${{ github.head_ref }}
+          PR_BASE: ${{ github.base_ref }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            SCOPE_ARGS=("/d:sonar.pullrequest.key=$PR_KEY" "/d:sonar.pullrequest.branch=$PR_BRANCH" "/d:sonar.pullrequest.base=$PR_BASE")
+          else
+            SCOPE_ARGS=("/d:sonar.branch.name=$REF_NAME")
+          fi
           dotnet tool install --global dotnet-sonarscanner
           dotnet sonarscanner begin /k:"${{ vars.SONAR_PROJECT_KEY }}" /o:"${{ vars.SONAR_ORGANIZATION }}" \
             /d:sonar.token="$SONAR_TOKEN" /d:sonar.host.url="https://sonarcloud.io" \
             /d:sonar.cs.opencover.reportsPaths="TestResults/**/coverage.opencover.xml" \
             /d:sonar.coverage.exclusions="**/Program.cs,**/Migrations/**,**/DependencyInjection.cs" \
-            /d:sonar.qualitygate.wait=true
+            /d:sonar.qualitygate.wait=true "${SCOPE_ARGS[@]}"
       - run: dotnet build $SOLUTION -c Release --no-restore
       - name: Test (falha se cobertura < 80%)
         run: dotnet test $SOLUTION -c Release --no-build
       - name: Sonar end
         if: env.SONAR_ENABLED == 'true'
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: dotnet sonarscanner end /d:sonar.token="$SONAR_TOKEN"
       - uses: actions/upload-artifact@v4
         if: always()
@@ -104,6 +123,13 @@ jobs:
           $txt = $txt -replace '(?m)^(\s*newName:).*$', "`$1 $img"
           $txt = $txt -replace '(?m)^(\s*newTag:).*$', "`$1 ${{ github.sha }}"
           Set-Content -Path $arq -Value $txt -NoNewline
+          # Garante que a reescrita casou: exatamente um newTag (sha) e um newName (imagem).
+          $tags = @(Select-String -Path $arq -Pattern ('^\s*newTag:\s*' + [regex]::Escape("${{ github.sha }}") + '\s*$')).Count
+          $nomes = @(Select-String -Path $arq -Pattern ('^\s*newName:\s*' + [regex]::Escape($img) + '\s*$')).Count
+          if ($tags -ne 1 -or $nomes -ne 1) {
+            Write-Host "kustomization.yaml invalido: newTag=$tags newName=$nomes (esperado 1 e 1)"
+            exit 1
+          }
           Get-Content $arq
           kubectl apply -k k8s/
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
