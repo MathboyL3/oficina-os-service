@@ -1,8 +1,10 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using MassTransit;
 using MassTransit.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Moq;
+using Serilog;
 using Oficina.Contracts;
 using Os.Application.Saga;
 
@@ -16,7 +18,7 @@ public sealed class SagaFixture : IAsyncDisposable
     public List<string> Aplicacoes { get; } = new();
     public List<(string Nome, Action<Os.Domain.OrdensServico.OrdemDeServico> Acao)> Acoes { get; } = new();
 
-    public SagaFixture(SagaTimeouts? timeouts = null)
+    public SagaFixture(SagaTimeouts? timeouts = null, Serilog.Core.ILogEventSink? sink = null)
     {
         var aplicador = new Mock<IAplicadorStatusOs>();
         aplicador.Setup(a => a.AplicarAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<Action<Os.Domain.OrdensServico.OrdemDeServico>>(), It.IsAny<CancellationToken>()))
@@ -26,7 +28,11 @@ public sealed class SagaFixture : IAsyncDisposable
         Provider = new ServiceCollection()
             .AddSingleton(aplicador.Object)
             .AddSingleton(Microsoft.Extensions.Options.Options.Create(timeouts ?? new SagaTimeouts()))
-            .AddLogging()
+            .AddLogging(l =>
+            {
+                if (sink is not null)
+                    l.AddSerilog(new Serilog.LoggerConfiguration().WriteTo.Sink(sink).CreateLogger(), dispose: true);
+            })
             .AddMassTransitTestHarness(x =>
             {
                 x.AddDelayedMessageScheduler();

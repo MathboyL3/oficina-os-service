@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using MassTransit;
 using MassTransit.Testing;
 using Oficina.Contracts;
@@ -321,4 +321,45 @@ public class OrdemServicoStateMachineTests
         (await f.Saga.Consumed.Any<PagamentoConfirmado>()).Should().BeTrue();
         (await f.Harness.Published.SelectAsync<EstornarPagamento>().Count()).Should().Be(1);
     }
-}
+    private sealed class ColetorLog : Serilog.Core.ILogEventSink
+    {
+        public System.Collections.Concurrent.ConcurrentQueue<Serilog.Events.LogEvent> Eventos { get; } = new();
+        public void Emit(Serilog.Events.LogEvent e) => Eventos.Enqueue(e);
+        public bool TemAlerta(string alerta) => Eventos.Any(e =>
+            e.Properties.TryGetValue("alerta", out var v) && v is Serilog.Events.ScalarValue { Value: string s } && s == alerta);
+    }
+
+    // New Relic coleta os alertas pelo log: a propriedade "alerta" precisa sair estruturada no Serilog.
+    [Fact]
+    public async Task Alerta_em_execucao_atrasada_sai_como_propriedade_estruturada_no_Serilog()
+    {
+        var log = new ColetorLog();
+        await using var f = new SagaFixture(new SagaTimeouts { EmExecucao = TimeSpan.FromMilliseconds(300) }, log);
+        var os = await AteAguardandoPagamento(f);
+        await f.Pub(new PagamentoConfirmado(os, T, Guid.NewGuid()));
+        await f.Pub(new PecasReservadas(os, T));
+        (await f.Saga.Consumed.Any<TimeoutEtapa>(x => x.Context.Message.Etapa == "EmExecucao")).Should().BeTrue();
+
+        var limite = DateTime.UtcNow.AddSeconds(5);
+        while (!log.TemAlerta("saga_em_execucao_atrasada") && DateTime.UtcNow < limite) await Task.Delay(50);
+        log.TemAlerta("saga_em_execucao_atrasada").Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Alerta_acao_manual_sai_como_propriedade_estruturada_no_Serilog()
+    {
+        var log = new ColetorLog();
+        await using var f = new SagaFixture(sink: log);
+        var os = await AteAguardandoPagamento(f);
+        var pag = Guid.NewGuid();
+        await f.Pub(new PagamentoConfirmado(os, T, pag));
+        await f.Pub(new ReservaPecasFalhou(os, T, "sem estoque"));
+        (await f.EsperarEstado(os, m => m.Compensando)).Should().NotBeNull();
+        await f.Pub(new EstornoFalhou(os, T, pag, "MP fora"));
+        (await f.EsperarEstado(os, m => m.AguardandoAcaoManual)).Should().NotBeNull();
+
+        var limite = DateTime.UtcNow.AddSeconds(5);
+        while (!log.TemAlerta("saga_acao_manual") && DateTime.UtcNow < limite) await Task.Delay(50);
+        log.TemAlerta("saga_acao_manual").Should().BeTrue();
+        log.Eventos.Should().Contain(e => e.Properties.ContainsKey("SagaEstado") || e.Properties.ContainsKey("alerta"));
+    }}
