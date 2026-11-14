@@ -15,7 +15,7 @@ public static class MessagingExtensions
     /// <summary>
     /// Saga (state machine) com repositório EF otimista, RabbitMQ, outbox transacional EF (publicações
     /// só saem após o SaveChanges, na mesma transação do agregado e da saga) e Quartz persistente
-    /// como scheduler dos timeouts. O retry cobre DbUpdateConcurrencyException (xmin da OS / Version da saga).
+    /// como scheduler dos timeouts. O retry cobre conflitos de concorrência (xmin da OS / Version da saga / 40001 do Postgres).
     /// Em "Testing" usa transporte, saga e scheduler em memória.
     /// </summary>
     public static IServiceCollection AddMessaging(this IServiceCollection services, IConfiguration cfg, bool testing)
@@ -74,7 +74,7 @@ public static class MessagingExtensions
             {
                 ep.UseMessageRetry(r =>
                 {
-                    r.Handle<Exception>(e => e is DbUpdateConcurrencyException || e.InnerException is DbUpdateConcurrencyException);
+                    r.Handle<Exception>(ConflitoConcorrencia.EhRetentavel);
                     r.Exponential(3, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(2));
                 });
                 ep.UseEntityFrameworkOutbox<OsDbContext>(ctx);
