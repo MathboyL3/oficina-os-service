@@ -47,5 +47,17 @@ public sealed class SagaFixture : IAsyncDisposable
         return found is null ? null : Saga.Sagas.Contains(found.Value);
     }
 
+    /// <summary>Faz polling (teto de 5s) até a mensagem ser publicada: o Any do harness desiste ao detectar ociosidade, antes de a saga terminar.</summary>
+    public async Task<bool> Publicou<T>(Func<IPublishedMessage<T>, bool>? filtro = null) where T : class
+    {
+        var limite = DateTime.UtcNow.AddSeconds(5);
+        do
+        {
+            if (await Harness.Published.Any<T>(x => filtro?.Invoke(x) ?? true)) return true;
+            await Task.Delay(50);
+        } while (DateTime.UtcNow < limite);
+        return false;
+    }
+
     public async ValueTask DisposeAsync() { await Harness.Stop(); await Provider.DisposeAsync(); }
 }

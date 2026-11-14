@@ -166,7 +166,7 @@ public sealed class OrdemServicoUseCases
     {
         var os = await Obter(osId, ct);
         var saga = await _saga.ObterAsync(osId, ct);
-        var permitido = saga is null ? os.PodeCancelar : EstadosSaga.Cancelaveis.Contains(saga.CurrentState);
+        var permitido = os.PodeCancelar && (saga is null || EstadosSaga.Cancelaveis.Contains(saga.CurrentState));
         if (!permitido)
             throw new ConflictException($"OS no estado {saga?.CurrentState ?? os.Status.ToString()} não pode ser cancelada.");
 

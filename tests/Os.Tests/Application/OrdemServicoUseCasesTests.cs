@@ -271,6 +271,18 @@ public class OrdemServicoUseCasesTests
     }
 
     [Fact]
+    public async Task Cancelar_os_ja_cancelada_com_saga_orfa_em_Recebida_409_sem_publicar()
+    {
+        var os = NovaOs();
+        os.Cancelar("antes"); // instância de saga órfã: a OS já foi cancelada mas a saga seguiu em Recebida
+        SagaEm(os.Id, "Recebida");
+
+        await FluentActions.Awaiting(() => Uc().CancelarAsync(os.Id, new CancelarOSRequest("x")))
+            .Should().ThrowAsync<ConflictException>();
+        _bus.Verify(b => b.Publish(It.IsAny<CancelamentoSolicitado>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task Reprocessar_so_em_AguardandoAcaoManual()
     {
         var os = NovaOs();

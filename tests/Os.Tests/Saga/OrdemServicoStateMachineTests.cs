@@ -67,8 +67,8 @@ public class OrdemServicoStateMachineTests
         (await f.Harness.Published.Any<EstornarPagamento>()).Should().BeFalse();
         (await f.Harness.Published.Any<LiberarPecas>()).Should().BeFalse();
         await f.Pub(new OrcamentoCancelado(os, T, orc));
+        (await f.Publicou<OrdemServicoCancelada>(x => x.Context.Message.Motivo.Contains("caro"))).Should().BeTrue();
         (await f.Saga.NotExists(os, TimeSpan.FromSeconds(5))).Should().BeNull(); // Cancelada e removida
-        (await f.Harness.Published.Any<OrdemServicoCancelada>(x => x.Context.Message.Motivo.Contains("caro"))).Should().BeTrue();
         f.Aplicacoes.Should().Contain("Cancelar");
     }
 
@@ -89,8 +89,8 @@ public class OrdemServicoStateMachineTests
         await f.Pub(new PecasLiberadas(os, T));
         (await f.EsperarEstado(os, m => m.Compensando)).Should().NotBeNull(); // ainda falta OrcamentoCancelado
         await f.Pub(new OrcamentoCancelado(os, T, null));
+        (await f.Publicou<OrdemServicoCancelada>()).Should().BeTrue();
         (await f.Saga.NotExists(os, TimeSpan.FromSeconds(5))).Should().BeNull(); // Cancelada e removida
-        (await f.Harness.Published.Any<OrdemServicoCancelada>()).Should().BeTrue();
     }
 
     [Fact]
@@ -109,8 +109,8 @@ public class OrdemServicoStateMachineTests
         await f.Pub(new PecasLiberadas(os, T));
         await f.Pub(new PagamentoEstornado(os, T, pag));
         await f.Pub(new OrcamentoCancelado(os, T, null));
+        (await f.Publicou<OrdemServicoCancelada>()).Should().BeTrue();
         (await f.Saga.NotExists(os, TimeSpan.FromSeconds(5))).Should().BeNull(); // Cancelada e removida
-        (await f.Harness.Published.Any<OrdemServicoCancelada>()).Should().BeTrue();
     }
 
     [Fact]
@@ -134,8 +134,8 @@ public class OrdemServicoStateMachineTests
         (await f.Harness.Published.SelectAsync<LiberarPecas>().Count()).Should().Be(2);       // ainda pendente → reenviado
         await f.Pub(new PecasLiberadas(os, T));
         await f.Pub(new PagamentoEstornado(os, T, pag));
+        (await f.Publicou<OrdemServicoCancelada>()).Should().BeTrue();
         (await f.Saga.NotExists(os, TimeSpan.FromSeconds(5))).Should().BeNull(); // Cancelada e removida
-        (await f.Harness.Published.Any<OrdemServicoCancelada>()).Should().BeTrue();
     }
 
     [Fact]
@@ -157,7 +157,7 @@ public class OrdemServicoStateMachineTests
         await f.Pub(new PagamentoConfirmado(os, T, Guid.NewGuid()));
         await f.Pub(new PecasReservadas(os, T));
         (await f.EsperarEstado(os, m => m.EmExecucao)).Should().NotBeNull();
-        await Task.Delay(800);
+        (await f.Saga.Consumed.Any<TimeoutEtapa>(x => x.Context.Message.Etapa == "EmExecucao")).Should().BeTrue(); // timeout chegou e foi tratado
         (await f.EsperarEstado(os, m => m.EmExecucao)).Should().NotBeNull();
         (await f.Harness.Published.Any<CancelarOrcamento>()).Should().BeFalse();
     }
@@ -211,6 +211,7 @@ public class OrdemServicoStateMachineTests
         (await f.Harness.Published.Any<CancelarOrcamento>()).Should().BeTrue();
         await f.Pub(new OrdemServicoAberta(os, T, Guid.NewGuid(), Guid.NewGuid())); // tardia: ignorada
         await f.Pub(new OrcamentoCancelado(os, T, null));
+        (await f.Publicou<OrdemServicoCancelada>(x => x.Context.Message.OrdemServicoId == os)).Should().BeTrue();
         (await f.Saga.NotExists(os, TimeSpan.FromSeconds(5))).Should().BeNull();
     }
 
@@ -281,6 +282,7 @@ public class OrdemServicoStateMachineTests
         await f.Pub(new OrcamentoSolicitado(os, T, Guid.NewGuid(), Itens, 140m));
         await f.Pub(new CancelamentoSolicitado(os, T, "x"));
         await f.Pub(new OrcamentoCancelado(os, T, null));
+        (await f.Publicou<OrdemServicoCancelada>(x => x.Context.Message.OrdemServicoId == os)).Should().BeTrue();
         (await f.Saga.NotExists(os, TimeSpan.FromSeconds(5))).Should().BeNull();
         var cancelar = f.Acoes.Single(a => a.Nome == "Cancelar").Acao;
         var agregado = Os.Domain.OrdensServico.OrdemDeServico.Abrir(Guid.NewGuid(), Guid.NewGuid());
@@ -290,5 +292,33 @@ public class OrdemServicoStateMachineTests
         var enviar = f.Acoes.First(a => a.Nome == "EnviarParaAprovacao").Acao;
         var act2 = () => enviar(agregado); // status incompatível: ignora em vez de lançar
         act2.Should().NotThrow();
+    }
+
+    [Fact]
+    public async Task Timeout_de_etapa_anterior_e_ignorado()
+    {
+        await using var f = new SagaFixture();
+        var os = await AteAguardandoPagamento(f);
+        await f.Pub(new TimeoutEtapa(os, T, "GerandoOrcamento")); // atrasado: a saga já está em AguardandoPagamento
+        (await f.Saga.Consumed.Any<TimeoutEtapa>(x => x.Context.Message.OrdemServicoId == os)).Should().BeTrue();
+        (await f.EsperarEstado(os, m => m.AguardandoPagamento)).Should().NotBeNull();
+        (await f.Harness.Published.Any<CancelarOrcamento>()).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Pagamento_confirmado_duplicado_apos_estorno_ok_nao_reenvia_estorno()
+    {
+        await using var f = new SagaFixture();
+        var os = await AteAguardandoPagamento(f);
+        var pag = Guid.NewGuid();
+        await f.Pub(new CobrancaCriada(os, T, pag, "http://link"));
+        await f.Pub(new CancelamentoSolicitado(os, T, "x"));
+        (await f.EsperarEstado(os, m => m.Compensando)).Should().NotBeNull();
+        (await f.Harness.Published.Any<EstornarPagamento>(x => x.Context.Message.PagamentoId == pag)).Should().BeTrue();
+        await f.Pub(new PagamentoEstornado(os, T, pag));
+        (await f.Saga.Consumed.Any<PagamentoEstornado>()).Should().BeTrue();
+        await f.Pub(new PagamentoConfirmado(os, T, pag)); // duplicado/tardio com o estorno já confirmado
+        (await f.Saga.Consumed.Any<PagamentoConfirmado>()).Should().BeTrue();
+        (await f.Harness.Published.SelectAsync<EstornarPagamento>().Count()).Should().Be(1);
     }
 }

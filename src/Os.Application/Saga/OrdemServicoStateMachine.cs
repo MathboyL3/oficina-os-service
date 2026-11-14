@@ -106,7 +106,7 @@ public sealed class OrdemServicoStateMachine : MassTransitStateMachine<OsSagaSta
                 .Schedule(Timeout, c => Tmo(c.Saga, "AguardandoAprovacao"), _ => to.AguardandoAprovacao)
                 .Then(c => Log(c, "AguardandoAprovacao")).TransitionTo(AguardandoAprovacao),
             Compensar(When(OrcFalhou), c => $"Falha ao gerar orÃ§amento: {c.Message.Motivo}", to),
-            Compensar(When(Timeout.Received), _ => "Timeout na geraÃ§Ã£o do orÃ§amento.", to));
+            Compensar(When(Timeout.Received, EtapaAtual("GerandoOrcamento")), _ => "Timeout na geraÃ§Ã£o do orÃ§amento.", to));
 
         During(AguardandoAprovacao,
             When(OrcAprovado).Unschedule(Timeout)
@@ -115,7 +115,7 @@ public sealed class OrdemServicoStateMachine : MassTransitStateMachine<OsSagaSta
                 .Schedule(Timeout, c => Tmo(c.Saga, "AguardandoPagamento"), _ => to.AguardandoPagamento)
                 .Then(c => Log(c, "AguardandoPagamento")).TransitionTo(AguardandoPagamento),
             Compensar(When(OrcRecusado), c => $"OrÃ§amento recusado: {c.Message.Motivo}", to),
-            Compensar(When(Timeout.Received), _ => "OrÃ§amento expirou sem aprovaÃ§Ã£o.", to));
+            Compensar(When(Timeout.Received, EtapaAtual("AguardandoAprovacao")), _ => "OrÃ§amento expirou sem aprovaÃ§Ã£o.", to));
 
         During(AguardandoPagamento,
             When(CobCriada).Then(c => { c.Saga.PagamentoId = c.Message.PagamentoId; c.Saga.LinkPagamento = c.Message.LinkPagamento; }),
@@ -125,7 +125,7 @@ public sealed class OrdemServicoStateMachine : MassTransitStateMachine<OsSagaSta
                 .Schedule(Timeout, c => Tmo(c.Saga, "ReservandoPecas"), _ => to.ReservandoPecas)
                 .Then(c => Log(c, "ReservandoPecas")).TransitionTo(ReservandoPecas),
             Compensar(When(PagRecusado), c => $"Pagamento recusado: {c.Message.Motivo}", to),
-            Compensar(When(Timeout.Received), _ => "Pagamento nÃ£o confirmado no prazo.", to));
+            Compensar(When(Timeout.Received, EtapaAtual("AguardandoPagamento")), _ => "Pagamento nÃ£o confirmado no prazo.", to));
 
         During(ReservandoPecas,
             When(Reservadas).Unschedule(Timeout)
@@ -135,7 +135,7 @@ public sealed class OrdemServicoStateMachine : MassTransitStateMachine<OsSagaSta
                 .Schedule(Timeout, c => Tmo(c.Saga, "EmExecucao"), _ => to.EmExecucao)
                 .Then(c => Log(c, "EmExecucao")).TransitionTo(EmExecucao),
             Compensar(When(ReservaFalhou), c => $"Falha na reserva de peÃ§as: {c.Message.Motivo}", to),
-            Compensar(When(Timeout.Received), _ => "Timeout na reserva de peÃ§as.", to));
+            Compensar(When(Timeout.Received, EtapaAtual("ReservandoPecas")), _ => "Timeout na reserva de peÃ§as.", to));
 
         During(EmExecucao,
             When(ExecIniciada).ThenAsync(c => Aplicar(c, "Observacao", os => os.RegistrarObservacao("DiagnÃ³stico/reparo iniciado pelo mecÃ¢nico."))),
@@ -145,8 +145,8 @@ public sealed class OrdemServicoStateMachine : MassTransitStateMachine<OsSagaSta
                 .Then(c => Log(c, "Finalizada")).TransitionTo(Finalizada).Finalize(),
             Compensar(When(ExecFalhou), c => $"Falha na execuÃ§Ã£o: {c.Message.Motivo}", to),
             // EmExecucao: timeout sÃ³ alerta (nÃ£o compensa) â€” Â§4.2.
-            When(Timeout.Received).Then(c => c.GetServiceOrCreateInstance<ILogger<OrdemServicoStateMachine>>()
-                .LogError("saga.alerta execuÃ§Ã£o parada hÃ¡ mais de {Prazo} os={OsId}", to.EmExecucao, c.Saga.CorrelationId)));
+            When(Timeout.Received, EtapaAtual("EmExecucao")).Then(c => c.GetServiceOrCreateInstance<ILogger<OrdemServicoStateMachine>>()
+                .LogError("saga.alerta {alerta} execuÃ§Ã£o parada hÃ¡ mais de {Prazo} os={OsId}", "saga_em_execucao_atrasada", to.EmExecucao, c.Saga.CorrelationId)));
 
         During(new[] { Recebida, GerandoOrcamento, AguardandoAprovacao, AguardandoPagamento, ReservandoPecas, EmExecucao },
             Compensar(When(CancSolicitado), c => c.Message.Motivo, to));
@@ -159,7 +159,7 @@ public sealed class OrdemServicoStateMachine : MassTransitStateMachine<OsSagaSta
             ConcluirSeOk(When(Estornado).Then(c => c.Saga.EstornoOk = true)),
             When(EstornoFalhouEv).Unschedule(Timeout)
                 .ThenAsync(c => IrParaAcaoManual(c, $"estorno falhou: {c.Message.Motivo}")).TransitionTo(AguardandoAcaoManual),
-            When(Timeout.Received).Unschedule(Timeout)
+            When(Timeout.Received, EtapaAtual("Compensando")).Unschedule(Timeout)
                 .ThenAsync(c => IrParaAcaoManual(c, "compensaÃ§Ã£o nÃ£o confirmada no prazo")).TransitionTo(AguardandoAcaoManual));
 
         During(AguardandoAcaoManual,
@@ -196,6 +196,9 @@ public sealed class OrdemServicoStateMachine : MassTransitStateMachine<OsSagaSta
     // ---------------------------------------------------------------- helpers
 
     private static OsSagaState Nova(Guid id) => new() { CorrelationId = id, CriadaEm = DateTime.UtcNow, AtualizadaEm = DateTime.UtcNow };
+
+    /// <summary>Timeout só vale se for da etapa do estado atual (valores gravados por <see cref="Tmo"/>).</summary>
+    private static StateMachineCondition<OsSagaState, TimeoutEtapa> EtapaAtual(string etapa) => c => c.Message.Etapa == etapa;
 
     private static TimeoutEtapa Tmo(OsSagaState s, string etapa) => new(s.CorrelationId, DateTime.UtcNow, etapa);
 
@@ -247,6 +250,7 @@ public sealed class OrdemServicoStateMachine : MassTransitStateMachine<OsSagaSta
     /// <summary>Pagamento que chega depois de iniciada a compensaÃ§Ã£o sem pagamento conhecido â†’ estorna.</summary>
     private static async Task CorridaPagamento<T>(BehaviorContext<OsSagaState, T> c, Guid pagamentoId) where T : class
     {
+        if (c.Saga.PagamentoId == pagamentoId && c.Saga.EstornoOk) return; // estorno já confirmado (duplicado)
         if (c.Saga.PagamentoId is not null && !c.Saga.EstornoOk) return; // estorno jÃ¡ pedido
         c.Saga.PagamentoId = pagamentoId;
         c.Saga.EstornoOk = false;
@@ -264,7 +268,7 @@ public sealed class OrdemServicoStateMachine : MassTransitStateMachine<OsSagaSta
     {
         await Aplicar(c, "Observacao", os => os.RegistrarObservacao($"compensaÃ§Ã£o pendente: {motivo}"));
         c.GetServiceOrCreateInstance<ILogger<OrdemServicoStateMachine>>()
-            .LogError("saga.estado {SagaEstado} os={OsId} motivo={Motivo}", "AguardandoAcaoManual", c.Saga.CorrelationId, motivo);
+            .LogError("saga.alerta {alerta} saga.estado {SagaEstado} os={OsId} motivo={Motivo}", "saga_acao_manual", "AguardandoAcaoManual", c.Saga.CorrelationId, motivo);
     }
 
     private static async Task ReenviarPendentes(BehaviorContext<OsSagaState, ReprocessarCompensacao> c)
