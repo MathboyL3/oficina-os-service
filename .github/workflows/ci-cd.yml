@@ -1,0 +1,111 @@
+name: ci-cd
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  SOLUTION: Os.slnx
+  IMAGE: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}
+
+jobs:
+  # Um unico job: os testes rodam uma vez so; o gate de cobertura (>= 80%, coverlet)
+  # vale SEMPRE. Sonar e opcional: so roda se o secret SONAR_TOKEN existir.
+  build-test-sonar:
+    name: build-test-sonar
+    runs-on: ubuntu-latest
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: "10.0.x" }
+      - run: dotnet restore $SOLUTION
+      - name: Sonar habilitado?
+        run: |
+          if [ -n "$SONAR_TOKEN" ]; then echo "SONAR_ENABLED=true" >> "$GITHUB_ENV"; fi
+      - name: Sonar begin
+        if: env.SONAR_ENABLED == 'true'
+        run: |
+          dotnet tool install --global dotnet-sonarscanner
+          dotnet sonarscanner begin /k:"${{ vars.SONAR_PROJECT_KEY }}" /o:"${{ vars.SONAR_ORGANIZATION }}" \
+            /d:sonar.token="$SONAR_TOKEN" /d:sonar.host.url="https://sonarcloud.io" \
+            /d:sonar.cs.opencover.reportsPaths="TestResults/**/coverage.opencover.xml" \
+            /d:sonar.coverage.exclusions="**/Program.cs,**/Migrations/**,**/DependencyInjection.cs" \
+            /d:sonar.qualitygate.wait=true
+      - run: dotnet build $SOLUTION -c Release --no-restore
+      - name: Test (falha se cobertura < 80%)
+        run: dotnet test $SOLUTION -c Release --no-build
+      - name: Sonar end
+        if: env.SONAR_ENABLED == 'true'
+        run: dotnet sonarscanner end /d:sonar.token="$SONAR_TOKEN"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: coverage, path: TestResults/**, if-no-files-found: warn }
+
+  image:
+    name: imagem (GHCR)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build-test-sonar
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with: { registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}" }
+      - name: Nome da imagem em minusculas
+        run: echo "IMAGE_LC=${IMAGE,,}" >> "$GITHUB_ENV"
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ env.IMAGE_LC }}:${{ github.sha }},${{ env.IMAGE_LC }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Pre-requisitos do deploy (nao automatizados aqui):
+  #  - runner self-hosted (Windows, Docker Desktop) com kubectl apontando para o cluster docker-desktop;
+  #  - fiap-infra-k8s ja aplicado (namespace oficina, RabbitMQ, etc.);
+  #  - k8s/bootstrap-secrets.ps1 ja executado (Secrets e ghcr-pull).
+  deploy:
+    name: deploy (Kubernetes)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: image
+    runs-on: self-hosted
+    environment: producao
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply + rollout
+        shell: pwsh
+        run: |
+          $repo = "${{ github.event.repository.name }}"
+          $img = "${{ env.IMAGE }}".ToLower()
+          # Fixa a tag do commit no kustomization.yaml do checkout (efemero) e aplica UMA vez:
+          # nao depende de kustomize standalone (kubectl kustomize nao tem 'edit') e evita
+          # dois rollouts (apply + set image).
+          $arq = "k8s/kustomization.yaml"
+          $txt = Get-Content $arq -Raw
+          $txt = $txt -replace '(?m)^(\s*newName:).*$', "`$1 $img"
+          $txt = $txt -replace '(?m)^(\s*newTag:).*$', "`$1 ${{ github.sha }}"
+          Set-Content -Path $arq -Value $txt -NoNewline
+          Get-Content $arq
+          kubectl apply -k k8s/
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          kubectl -n oficina rollout status deployment/$repo --timeout=180s
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
