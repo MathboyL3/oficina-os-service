@@ -20,6 +20,14 @@
       "value": "http://localhost:5001"
     },
     {
+      "key": "authUrl",
+      "value": "https://function-bun-production-8bb2.up.railway.app"
+    },
+    {
+      "key": "clienteToken",
+      "value": ""
+    },
+    {
       "key": "clienteId",
       "value": ""
     },
@@ -130,7 +138,7 @@
                 "bootstrap"
               ]
             },
-            "description": "Anônimo. Cria o primeiro usuário (use role Gerente). 409 se o e-mail já existe.",
+            "description": "Anônimo. Só funciona com 0 usuários cadastrados (senão 409 Bootstrap já realizado.) e cria SEMPRE um Gerente (o role do body é ignorado).",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"nome\": \"Gerente\",\n  \"email\": \"gerente@oficina.local\",\n  \"senha\": \"Senha@12345\",\n  \"role\": \"Gerente\"\n}",
@@ -144,6 +152,53 @@
               "type": "noauth"
             }
           }
+        },
+        {
+          "name": "Login cliente (CPF)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{authUrl}}/auth",
+              "host": [
+                "{{authUrl}}"
+              ],
+              "path": [
+                "auth"
+              ]
+            },
+            "description": "Chama a Railway Function fiap-auth-lambda (POST /auth), que consulta o cliente no os-service via Kong (/os/internal, X-Service-Key) e devolve o JWT com role Cliente. O CPF precisa estar cadastrado (Criar cliente). O teste salva access_token em {{clienteToken}}.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cpf\": \"52998224725\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('login cliente 200', function () { pm.response.to.have.status(200); });",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('clienteToken', j.access_token);"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Criar usuário",

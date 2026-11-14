@@ -22,7 +22,8 @@ Arquitetura completa, justificativas e tecnologias: [`docs/ARQUITETURA-FASE4.md`
 
 ```mermaid
 flowchart LR
-  Kong[[Kong Gateway]] --> OS[os-service]
+  Auth[fiap-auth-lambda] -- "GET /os/internal/clientes/por-documento + X-Service-Key" --> Kong[[Kong Gateway]]
+  Kong --> OS[os-service]
   Kong --> BIL[billing-service]
   Kong --> EXE[execucao-service]
   MP[(Mercado Pago)] -- webhook --> Kong
@@ -51,6 +52,7 @@ Como o estado é persistido em `os_saga_state` (concorrência otimista) e as pub
 stateDiagram-v2
   [*] --> Recebida: OrdemServicoAberta
   [*] --> GerandoOrcamento: OrcamentoSolicitado
+  [*] --> Compensando: CancelamentoSolicitado
   Recebida --> GerandoOrcamento: OrcamentoSolicitado
   GerandoOrcamento --> AguardandoAprovacao: OrcamentoGerado
   GerandoOrcamento --> Compensando: GeracaoOrcamentoFalhou ou Timeout
@@ -187,7 +189,7 @@ Runbook de pagamento após cancelamento (`pagamento_apos_cancelamento`): ver o [
 
 ## Observabilidade
 
-Serilog JSON + agente New Relic; `traceparent` W3C propagado nas mensagens MassTransit (mesmo `trace.id` ao longo da Saga). Logs `saga.estado` alimentam o painel "Saga" do dashboard [`observability/dashboard-fase4.json`](observability/dashboard-fase4.json) (ver [`observability/README.md`](observability/README.md)).
+Serilog JSON + agente New Relic (APM por serviço). Os logs dos 3 serviços são correlacionados pelo id da OS: o os-service loga `OsId` (ex.: `saga.estado {SagaEstado} os={OsId}`) e billing/execucao logam `OrdemServicoId`. Consulta: `SELECT * FROM Log WHERE OsId = '<id>' SINCE 1 hour ago` (os-service) e `... WHERE OrdemServicoId = '<id>' ...` (billing/execucao). O agente New Relic + MassTransit **pode** propagar o contexto de trace entre os serviços; isso **não foi verificado** e é conferido na demo (Distributed tracing), sem ser requisito da correlação. Logs `saga.estado` alimentam o painel "Saga" do dashboard [`observability/dashboard-fase4.json`](observability/dashboard-fase4.json) (ver [`observability/README.md`](observability/README.md)).
 
 ## Testes e cobertura
 
@@ -197,27 +199,27 @@ dotnet test Os.slnx   # unitários (xUnit) + BDD (Reqnroll); falha se a cobertur
 
 BDD em `tests/Os.Bdd/Features/SagaOrdemServico.feature` (5 cenários, state machine com `ITestHarness`): caminho feliz, orçamento recusado, pagamento recusado, falta de peças (estorno + cancelamento) e falha na execução (libera peças + estorno). `Os.Tests` exige **Docker** (Testcontainers/Postgres).
 
-Evidência (execução real de `dotnet test Os.slnx` em 2026-11-14; 205 testes unitários + 5 BDD, 0 falhas). Cobertura do `Os.Tests` (a do `Os.Bdd`, isolada, é parcial e não conta para o gate):
+Evidência (execução real de `dotnet test Os.slnx` em 2026-11-14; 228 testes unitários + 5 BDD, 0 falhas). Cobertura do `Os.Tests` (a do `Os.Bdd`, isolada, é parcial e não conta para o gate):
 
 ```
 +-------------------+--------+--------+--------+
 | Module            | Line   | Branch | Method |
 +-------------------+--------+--------+--------+
-| Os.Api            | 68.98% | 33.33% | 65.85% |
+| Os.Api            | 77.31% | 68.57% | 72.54% |
 +-------------------+--------+--------+--------+
-| Os.Application    | 92.61% | 73.8%  | 92.48% |
+| Os.Application    | 93.5%  | 75.29% | 92.99% |
 +-------------------+--------+--------+--------+
 | Os.Domain         | 88.19% | 76.31% | 87.87% |
 +-------------------+--------+--------+--------+
-| Os.Infrastructure | 94.95% | 69.64% | 94.44% |
+| Os.Infrastructure | 95.16% | 70.68% | 94.59% |
 +-------------------+--------+--------+--------+
 
 +---------+--------+--------+--------+
 |         | Line   | Branch | Method |
 +---------+--------+--------+--------+
-| Total   | 89.08% | 72.63% | 89.08% |
+| Total   | 89.96% | 74.45% | 89.59% |
 +---------+--------+--------+--------+
-| Average | 86.18% | 63.27% | 85.16% |
+| Average | 88.54% | 72.71% | 86.99% |
 +---------+--------+--------+--------+
 ```
 
@@ -255,4 +257,6 @@ Pipeline em `.github/workflows/ci-cd.yml` (GitHub Actions).
 
 ## Integração com a fiap-auth-lambda
 
-Na Fase 4, a `fiap-auth-lambda` consulta o cliente por CPF via `GET /internal/clientes/por-documento/{cpf}` (header `X-Service-Key`), sem acessar o banco `oficina_os`, que pertence só a este serviço.
+Na Fase 4, a `fiap-auth-lambda` consulta o cliente por CPF via `GET /internal/clientes/por-documento/{cpf}` (header `X-Service-Key`), sem acessar o banco `oficina_os`, que pertence só a este serviço. Fluxo: function (Railway) → Kong (`/os`) → este serviço (`/internal`) → JWT `Cliente` devolvido pela function.
+
+**Passo do avaliador (login do cliente):** (1) `bootstrap` (só funciona com 0 usuários; cria sempre Gerente) e `login`; (2) `POST /api/clientes` com um CPF válido; (3) na coleção Postman, request **Login cliente (CPF)** (`POST {{authUrl}}` com `{"cpf":"..."}`) — o test script guarda o JWT em `clienteToken`, usado nas rotas de Cliente do billing.

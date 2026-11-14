@@ -1,17 +1,17 @@
-# Roteiro do vídeo — Fase 4 (até ~15 min)
+# Roteiro do vídeo — Fase 4 (14:00, limite do enunciado: 15 min)
 
-Pré-requisito: ambiente no ar (docker compose dos 3 serviços ou cluster Kubernetes), coleções Postman importadas (`docs/*.postman_collection.json`), billing em `MercadoPago__Modo=Fake`. Mantenha abertos: Swagger, RabbitMQ UI e New Relic.
+Pré-requisito: ambiente no ar (docker compose dos 3 serviços ou cluster Kubernetes), coleções Postman importadas (`docs/*.postman_collection.json`), billing em `MercadoPago__Modo=Fake` com `MercadoPago__WebhookSecret=dev-webhook-secret-0123456789` (já no compose; mesmo valor da variável `webhookSecret` da coleção). Mantenha abertos: Swagger, RabbitMQ UI, New Relic e a aba Actions do repositório (com uma run recente).
 
 | Tempo | Cena | O que mostrar / dizer |
 |---|---|---|
 | 0:00–1:30 | Introdução | Problema, divisão do monólito em 3 microsserviços, 3 repositórios, SQL + NoSQL. Diagrama de [`ARQUITETURA-FASE4.md`](ARQUITETURA-FASE4.md) |
-| 1:30–3:00 | Por que Saga orquestrada | Ordem estrita e compensações; estado consultável em `GET /api/ordens-servico/{id}`; diagrama de estados do README |
-| 3:00–4:30 | Infra | `kubectl get pods -n oficina` (3 serviços, RabbitMQ, bancos), HPA, Kong (`/os`, `/billing`, `/execucao`), RabbitMQ UI (31672 ou 15672) |
-| 4:30–7:30 | **Fluxo feliz** | Postman os-service: Bootstrap → Login → (execucao) cadastrar serviço e peça → cliente → veículo → abrir OS → itens → enviar orçamento. Billing: aprovar orçamento (Fake paga na hora). Acompanhar `saga.estado`: GerandoOrcamento → AguardandoAprovacao → AguardandoPagamento → ReservandoPecas → EmExecucao. Execucao: fila → iniciar → diagnóstico → finalizar → OS `Finalizada` → `entregar` |
-| 7:30–9:30 | **Compensação** | Nova OS: após o pagamento, `POST .../cancelar` (ou execucao `falhar`): mostrar `Compensando` → peças liberadas (estoque volta), pagamento estornado, `Cancelada` com motivo. Opcional: `FakeComportamento=FalharEstorno` → `AguardandoAcaoManual` → `GET /api/admin/sagas` → reprocessar |
-| 9:30–10:30 | Mercado Pago | Gateway real vs Fake, webhook com `x-signature` (request "Webhook MP (exemplo)" da coleção do billing), idempotência, estorno |
-| 10:30–12:00 | Qualidade | `dotnet test` com a tabela de cobertura (≥ 80%), BDD `SagaOrdemServico.feature` (5 cenários), SonarCloud |
-| 12:00–13:30 | CI/CD | Workflow: `build-test-sonar` → `image` (GHCR) → `deploy` (self-hosted); proteção da `main` (check `build-test-sonar`) |
-| 13:30–15:00 | Observabilidade | New Relic: dashboard Fase 4, painel Saga (estados), trace distribuído com o mesmo `trace.id` atravessando os 3 serviços, alertas `saga_acao_manual` / `pagamento_apos_cancelamento` |
-
-Encerramento: recapitular entregáveis (3 repos com README, Postman, Sonar, pipelines, vídeo) e riscos conhecidos (webhook real exige túnel público; runner self-hosted depende do Docker Desktop).
+| 1:30–2:45 | Por que Saga orquestrada | Ordem estrita e compensações; estado consultável em `GET /api/ordens-servico/{id}`; diagrama de estados do README |
+| 2:45–4:00 | Infra | `kubectl get pods -n oficina` (3 serviços, RabbitMQ, bancos), HPA, Kong (`/os`, `/billing`, `/execucao`), RabbitMQ UI (31672 ou 15672) |
+| 4:00–7:00 | **Fluxo feliz** | Postman os-service: Bootstrap (só com 0 usuários; cria Gerente) → Login → (execucao) cadastrar serviço e peça → cliente (com CPF) → **Login cliente (CPF)** (function → Kong → os-service; token em `clienteToken`) → veículo → abrir OS → itens → enviar orçamento. Billing: aprovar orçamento com `clienteToken` (Fake paga na hora). Acompanhar `saga.estado`: GerandoOrcamento → AguardandoAprovacao → AguardandoPagamento → ReservandoPecas → EmExecucao. Execucao: fila → iniciar → diagnóstico → finalizar → OS `Finalizada` → `entregar` |
+| 7:00–9:00 | **Compensação** | Nova OS: após o pagamento, `POST .../cancelar` (ou execucao `falhar`): mostrar `Compensando` → peças liberadas (estoque volta), pagamento estornado, `Cancelada` com motivo |
+| 9:00–9:45 | **Opcional: falha de estorno** | Só se houver tempo: ativar `MercadoPago__FakeComportamento=FalharEstorno` (env no `docker-compose.yml` do billing, ou no ConfigMap do billing no cluster) e **reiniciar o billing** (`docker compose up -d billing-api` / `kubectl rollout restart deploy/oficina-billing-service -n oficina`); cancelar uma OS paga → `AguardandoAcaoManual` → `GET /api/admin/sagas` → voltar o comportamento a `Aprovar`, reiniciar e `POST .../reprocessar-compensacao`. Se pular, usar 9:00–9:45 para a cena seguinte |
+| 9:45–10:30 | Mercado Pago | Gateway real vs Fake; webhook: request "Webhook MP (exemplo)" da coleção do billing (assinatura HMAC com `webhookSecret` = secret do compose; 200 idempotente), estorno |
+| 10:30–11:30 | Qualidade | `dotnet test` com a tabela de cobertura (≥ 80%), BDD `SagaOrdemServico.feature` (5 cenários), SonarCloud |
+| 11:30–12:30 | CI/CD ao vivo | Aba Actions: uma **run real** do repositório (`build-test-sonar` → `image` → `deploy`) com os jobs verdes e o log do deploy; no terminal, `kubectl rollout status deploy/oficina-os-service -n oficina` mostrando o rollout concluído. Proteção da `main` (check `build-test-sonar`) |
+| 12:30–13:30 | Observabilidade | New Relic: dashboard Fase 4 e painel Saga (estados); APM de cada serviço; logs correlacionados pelo id da OS (`SELECT * FROM Log WHERE OsId = '<id>' SINCE 1 hour ago`; no billing/execucao, `OrdemServicoId`); abrir Distributed tracing e **mostrar o que houver** (o agente + MassTransit pode propagar o contexto — verificado na hora, sem prometer); alertas `saga_acao_manual` / `pagamento_apos_cancelamento` |
+| 13:30–14:00 | Encerramento | Recapitular entregáveis (3 repos com README, Postman, Sonar, pipelines, vídeo) e riscos conhecidos (webhook real exige túnel público; runner self-hosted depende do Docker Desktop) |

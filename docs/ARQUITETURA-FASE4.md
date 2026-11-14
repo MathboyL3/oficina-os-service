@@ -11,7 +11,7 @@ Documento-base do PDF de entrega do Tech Challenge Fase 4 (SOAT/FIAP). O monóli
 | `oficina-execucao-service` | Catálogo de serviços/peças, estoque, reservas e fila de execução |
 | `fiap-infra-k8s` | Terraform: namespace, RabbitMQ, Kong (API Gateway) e rotas |
 | `fiap-infra-db` | Postgres gerenciado (Railway) onde vive o database `oficina_os` |
-| `fiap-auth-lambda` | Login do cliente por CPF → JWT (Railway Function); lê `clientes` de `oficina_os` |
+| `fiap-auth-lambda` | Login do cliente por CPF → JWT (Railway Function); consulta o cliente no os-service via Kong (`/os/internal`), sem acessar banco |
 
 ## 2. Visão geral
 
@@ -19,7 +19,8 @@ Documento-base do PDF de entrega do Tech Challenge Fase 4 (SOAT/FIAP). O monóli
 flowchart LR
   Cli([Cliente / Equipe]) --> Kong[[Kong Gateway :32080]]
   MP[(Mercado Pago)] -- webhook --> Kong
-  Auth[fiap-auth-lambda] --> PGOS
+  Cli -- "POST /auth {cpf}" --> Auth[fiap-auth-lambda]
+  Auth -- "GET /os/internal/clientes/por-documento + X-Service-Key" --> Kong
   Kong -- /os --> OS[os-service]
   Kong -- /billing --> BIL[billing-service]
   Kong -- /execucao --> EXE[execucao-service]
@@ -34,7 +35,14 @@ flowchart LR
   OS & BIL & EXE -. APM, logs e traces .-> NR[(New Relic)]
 ```
 
-Regra de ouro: **nenhum serviço acessa o banco de outro**. A integração é por mensagens (RabbitMQ) e, para validar itens, por REST no catálogo do execucao-service.
+Regra de ouro: **nenhum serviço acessa o banco de outro** (verdadeira em todos os componentes, inclusive a function de autenticação). A integração é por mensagens (RabbitMQ) e por REST: o os-service valida itens no catálogo do execucao-service e a `fiap-auth-lambda` consulta o cliente no os-service.
+
+**Login do cliente por CPF:** o cliente chama a function (`POST /auth {"cpf"}`) → a function chama o Kong (`GET /os/internal/clientes/por-documento/{cpf}` com o header `X-Service-Key`) → o Kong encaminha ao os-service, dono do database `oficina_os`, que responde `{id,nome,email}` → a function emite o JWT HS256 com role `Cliente`, aceito pelos 3 serviços (mesmo `Issuer`/`Audience`/`Secret`).
+
+**Segurança do acesso interno e da identidade:**
+- Chave de serviço: `X-Service-Key` = `InternalApi__ServiceKey` no os-service (`OS_INTERNAL_SERVICE_KEY` no `bootstrap-secrets.ps1`) = `OS_SERVICE_KEY` na function. Comparação em tempo constante; sem chave configurada o endpoint responde 503 e, com chave errada, 401. A rota é pública no Kong (a function roda fora do cluster), então a chave é segredo e deve ser **rotacionada nos dois lados** (Secret do K8s e variável da function).
+- `POST /api/auth/bootstrap` só funciona com **0 usuários** (depois, 409) e cria **sempre um Gerente**.
+- O CPF é **mascarado** nos logs (inclusive no request log).
 
 ## 3. Por que essa divisão
 
@@ -71,7 +79,30 @@ sequenceDiagram
   S-->>API: OS Finalizada
 ```
 
-Compensações (estado `Compensando`): `CancelarOrcamento`, `LiberarPecas` e `EstornarPagamento`, conforme o ponto da falha; se o estorno falha ou o prazo estoura, a Saga vai a `AguardandoAcaoManual` e há reprocessamento por `POST /api/admin/ordens-servico/{id}/reprocessar-compensacao`. Diagrama de estados, tabela de mensagens e runbook: [README do os-service](../README.md).
+Compensações (estado `Compensando`): `CancelarOrcamento`, `LiberarPecas` e `EstornarPagamento`, conforme o ponto da falha; se o estorno falha ou o prazo estoura, a Saga vai a `AguardandoAcaoManual` e há reprocessamento por `POST /api/admin/ordens-servico/{id}/reprocessar-compensacao`. Tabela de mensagens e runbook: [README do os-service](../README.md).
+
+```mermaid
+stateDiagram-v2
+  [*] --> Recebida: OrdemServicoAberta
+  [*] --> GerandoOrcamento: OrcamentoSolicitado
+  [*] --> Compensando: CancelamentoSolicitado
+  Recebida --> GerandoOrcamento
+  GerandoOrcamento --> AguardandoAprovacao
+  AguardandoAprovacao --> AguardandoPagamento
+  AguardandoPagamento --> ReservandoPecas
+  ReservandoPecas --> EmExecucao
+  EmExecucao --> Finalizada
+  GerandoOrcamento --> Compensando: falha, recusa, timeout ou cancelamento
+  AguardandoAprovacao --> Compensando: falha, recusa, timeout ou cancelamento
+  AguardandoPagamento --> Compensando: falha, recusa, timeout ou cancelamento
+  ReservandoPecas --> Compensando: falha, timeout ou cancelamento
+  EmExecucao --> Compensando: ExecucaoFalhou ou cancelamento
+  Compensando --> Cancelada: todas as confirmacoes
+  Compensando --> AguardandoAcaoManual: EstornoFalhou ou Timeout
+  AguardandoAcaoManual --> Compensando: ReprocessarCompensacao
+  Finalizada --> [*]
+  Cancelada --> [*]
+```
 
 ### Garantias de consistência
 - **Outbox transacional** em cada serviço (EF Core no os/execucao, MongoDB no billing): o dado e a mensagem confirmam juntos; o inbox descarta reentregas (idempotência por `MessageId`).
@@ -81,21 +112,24 @@ Compensações (estado `Compensando`): `CancelarOrcamento`, `LiberarPecas` e `Es
 
 ## 5. Mercado Pago
 
-Integração REST atrás de `IGatewayPagamento`: Checkout Pro (`/checkout/preferences`), consulta de pagamento e estorno (`/v1/payments/{id}/refunds`). O webhook (`POST /webhooks/mercadopago`) valida `x-signature` (HMAC-SHA256 sobre `id:{data.id};request-id:{x-request-id};ts:{ts};`), **não confia no corpo** (consulta o pagamento na API) e é idempotente. `MercadoPago__Modo=Fake` (padrão) aprova na hora, sem rede, e é usado em testes e na demo; `FakeComportamento` = `Aprovar` | `Recusar` | `FalharEstorno`. Credenciais reais exigem URL pública (túnel) para o webhook.
+Integração REST atrás de `IGatewayPagamento`: Checkout Pro (`/checkout/preferences`), consulta de pagamento e estorno (`/v1/payments/{id}/refunds`). O webhook (`POST /webhooks/mercadopago`) valida `x-signature` (HMAC-SHA256 sobre `id:{data.id};request-id:{x-request-id};ts:{ts};`), **não confia no corpo** (consulta o pagamento na API) e é idempotente. `MercadoPago__Modo=Fake` (padrão) aprova na hora, sem rede, e é usado em testes e na demo; `FakeComportamento` = `Aprovar` | `Recusar` | `FalharEstorno`. O Fake não chama o MP, mas o endpoint de webhook valida a assinatura em qualquer modo; o compose de dev define `MercadoPago__WebhookSecret` (`dev-webhook-secret-0123456789`, o mesmo da coleção Postman). Credenciais reais exigem URL pública (túnel) para o webhook.
 
 ## 6. Tecnologias
 
-| Camada | Tecnologia |
-|---|---|
-| Runtime | .NET 10, ASP.NET Core, Clean Architecture (Domain/Application/Infrastructure/Api) |
-| Mensageria | RabbitMQ 3.13 + MassTransit 8.x (State Machine, outbox, retry); Quartz.NET para timeouts |
-| Dados | PostgreSQL (EF Core/Npgsql), MongoDB (`MongoDB.Driver`) |
-| Segurança | JWT Bearer HS256 (`Oficina.Api`); roles Cliente, Atendente, Mecanico, Gerente |
-| Gateway | Kong (rotas `/os`, `/billing`, `/execucao`, webhook sem rate limit) |
-| Contêineres | Docker, Kubernetes (Deployment, Service, HPA, ConfigMap, Secret, Kustomize), Terraform |
-| CI/CD | GitHub Actions: build → testes + cobertura ≥ 80% → SonarCloud → imagem GHCR → deploy (runner self-hosted) |
-| Observabilidade | Serilog JSON, New Relic APM/Logs, `traceparent` W3C nas mensagens |
-| Testes | xUnit, Reqnroll (BDD), Testcontainers, coverlet |
+| Camada | Tecnologia | Por quê |
+|---|---|---|
+| Runtime | .NET 10, ASP.NET Core, Clean Architecture (Domain/Application/Infrastructure/Api) | Continuidade com o monólito da Fase 3; camadas isolam regra de negócio da infraestrutura |
+| Mensageria | RabbitMQ 3.13 | Broker simples de operar no cluster local, com UI de management útil na demo; suficiente para o volume do desafio |
+| Orquestração/mensageria | MassTransit 8.x (State Machine, outbox, retry) | Dá a state machine da Saga, outbox/inbox e retry prontos, em vez de implementar à mão |
+| Timeouts | Quartz.NET persistente | Agenda os timeouts da Saga no próprio Postgres (sobrevivem a reinício), sem plugin de delayed message no RabbitMQ |
+| Dados relacionais | PostgreSQL (EF Core/Npgsql) | os-service e execucao-service precisam de integridade referencial e transações (estoque, OS → itens → histórico) |
+| Dados NoSQL | MongoDB (`MongoDB.Driver`) | Orçamento/pagamento são documentos aninhados sem joins; atende ao requisito de banco não relacional. Replica set para transações + outbox |
+| Segurança | JWT Bearer HS256 (`Oficina.Api`); roles Cliente, Atendente, Mecanico, Gerente | Mesmo token validado pelos 3 serviços, sem chamada ao emissor |
+| Gateway | Kong (rotas `/os`, `/billing`, `/execucao`, webhook sem rate limit) | Ponto único de entrada e rate limit; já usado na Fase 3 |
+| Contêineres | Docker, Kubernetes (Deployment, Service, HPA, ConfigMap, Secret, Kustomize), Terraform | Exigência do desafio; Terraform reaproveita a infra da Fase 3 |
+| CI/CD | GitHub Actions: build → testes + cobertura ≥ 80% → SonarCloud → imagem GHCR → deploy (runner self-hosted) | Pipeline independente por repositório; runner self-hosted porque o cluster é local (Docker Desktop) |
+| Observabilidade | Serilog JSON, New Relic APM/Logs; logs correlacionados por `OsId` (os-service) / `OrdemServicoId` (billing, execucao) | New Relic já estava provisionado na Fase 3; logs estruturados dão a correlação por OS sem depender de propagação de trace |
+| Testes | xUnit, Reqnroll (BDD), Testcontainers, coverlet | xUnit é o padrão .NET; Reqnroll descreve a Saga em Gherkin; Testcontainers testa Postgres/Mongo reais; coverlet impõe o gate de 80% |
 
 ## 7. Contratos de mensagem
 
@@ -107,7 +141,13 @@ Proxy do Kong (NodePort 32080): `/os/...`, `/execucao/...`, `/billing/...` e `/b
 
 ## 9. Qualidade e entrega
 
-- Testes unitários em todos os serviços; BDD da Saga no os-service (5 cenários); cobertura ≥ 80% de linhas exigida no build. Evidência nos READMEs de cada repositório.
+- Testes unitários em todos os serviços; BDD da Saga no os-service (5 cenários); cobertura ≥ 80% de linhas exigida no build. Evidência nos READMEs de cada repositório (execução real de `dotnet test <sln>` em 2026-11-14, 0 falhas):
+
+| Serviço | Testes | Line | Branch | Method |
+|---|---|---|---|---|
+| os-service (`Os.Tests`) | 228 unitários + 5 BDD | 89.96% | 74.45% | 89.59% |
+| billing-service | 150 | 89.47% | 80.26% | 80.63% |
+| execucao-service | 114 | 89.04% | 75.72% | 83.84% |
 - Pipeline por repositório com SonarCloud (opcional enquanto não há `SONAR_TOKEN`), imagem no GHCR e deploy `kubectl apply -k k8s/`.
 - Dashboard New Relic com painel da Saga: [`observability/dashboard-fase4.json`](../observability/dashboard-fase4.json).
 - Coleções Postman por serviço em `docs/*.postman_collection.json`; roteiro do vídeo em [`ROTEIRO-VIDEO-FASE4.md`](ROTEIRO-VIDEO-FASE4.md).
