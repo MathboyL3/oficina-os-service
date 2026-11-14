@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Text;
@@ -124,7 +124,7 @@ if (!app.Environment.IsEnvironment("Testing"))
     using var scope = app.Services.CreateScope();
     var ctx = scope.ServiceProvider.GetRequiredService<OsDbContext>();
     if (ctx.Database.IsRelational())
-        ctx.Database.Migrate();
+        ctx.MigrateComLock();
 }
 
 // Correlacao: injeta trace.id/span.id (padrao New Relic) no contexto de log.
