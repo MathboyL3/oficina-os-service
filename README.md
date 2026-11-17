@@ -9,7 +9,7 @@ Orquestrador da **Saga de Ordem de Serviço** da Oficina (Tech Challenge — Fas
 | [oficina-execucao-service](https://github.com/MathboyL3/oficina-execucao-service) | Catálogo, estoque, reserva de peças e fila de execução | PostgreSQL |
 
 Infra do cluster (Kong, RabbitMQ): [fiap-infra-k8s](https://github.com/MathboyL3/fiap-infra-k8s). Autenticação do cliente por CPF: [fiap-auth-lambda](https://github.com/MathboyL3/fiap-auth-lambda).
-Arquitetura completa, justificativas e tecnologias: [`docs/ARQUITETURA-FASE4.md`](docs/ARQUITETURA-FASE4.md). Roteiro do vídeo: [`docs/ROTEIRO-VIDEO-FASE4.md`](docs/ROTEIRO-VIDEO-FASE4.md).
+Arquitetura completa, justificativas e tecnologias: [`docs/ARQUITETURA-FASE4.md`](docs/ARQUITETURA-FASE4.md).
 
 ## Responsabilidades
 
