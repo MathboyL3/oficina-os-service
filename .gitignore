@@ -14,7 +14,7 @@ TestResults/
 appsettings.*.local.json
 
 # Roteiro de vídeo (apoio local, fora do repo)
-docs/ROTEIRO-VIDEO.md
+docs/ROTEIRO-VIDEO*.md
 
 # Guia de entrega (apoio local, fora do repo)
 docs/ENTREGA.md

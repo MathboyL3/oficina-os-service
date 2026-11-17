@@ -151,4 +151,4 @@ Proxy do Kong (NodePort 32080): `/os/...`, `/execucao/...`, `/billing/...` e `/b
 | execucao-service | 114 | 89.04% | 75.72% | 83.84% |
 - Pipeline por repositório com SonarCloud (opcional enquanto não há `SONAR_TOKEN`), imagem no GHCR e deploy `kubectl apply -k k8s/`.
 - Dashboard New Relic com painel da Saga: [`observability/dashboard-fase4.json`](../observability/dashboard-fase4.json).
-- Coleções Postman por serviço em `docs/*.postman_collection.json`; roteiro do vídeo em [`ROTEIRO-VIDEO-FASE4.md`](ROTEIRO-VIDEO-FASE4.md).
+- Coleções Postman por serviço em `docs/*.postman_collection.json`.
