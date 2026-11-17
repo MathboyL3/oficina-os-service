@@ -16,6 +16,9 @@ public static class ConflitoConcorrencia
         {
             if (e is DbUpdateConcurrencyException) return true;
             if (e is PostgresException { SqlState: PostgresErrorCodes.SerializationFailure or PostgresErrorCodes.DeadlockDetected }) return true;
+            // Dois eventos iniciais da mesma OS (InsertOnInitial) inserindo a saga ao mesmo tempo: no retry a
+            // instância já existe e o evento cai no During(...) correspondente.
+            if (e is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: "PK_os_saga_state" }) return true;
         }
         return false;
     }
