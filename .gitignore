@@ -1,0 +1,29 @@
+# .NET
+bin/
+obj/
+artifacts/
+coverage-report/
+TestResults/
+*.user
+.vs/
+
+# Env
+.env
+
+# Secrets
+appsettings.*.local.json
+
+# Roteiro de vídeo (apoio local, fora do repo)
+docs/ROTEIRO-VIDEO.md
+
+# Guia de entrega (apoio local, fora do repo)
+docs/ENTREGA.md
+
+# Specs e planos (apoio local, fora do repo)
+docs/superpowers/
+
+# Código gerado pelo Reqnroll (regenerado no build)
+*.feature.cs
+
+# Secrets reais do Kubernetes
+k8s/secret.yaml
