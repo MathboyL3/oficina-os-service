@@ -26,6 +26,23 @@ public class ConflitoConcorrenciaTests
     }
 
     [Fact]
+    public void Reconhece_insert_concorrente_da_mesma_saga()
+    {
+        // OrdemServicoAberta e OrcamentoSolicitado têm InsertOnInitial: se chegam juntos, o segundo
+        // INSERT colide na PK da saga. No retry a linha já existe e a mensagem é processada normalmente.
+        var pg = Unique("PK_os_saga_state");
+        var ex = new DbUpdateException("save", pg);
+        ConflitoConcorrencia.EhRetentavel(ex).Should().BeTrue();
+    }
+
+    [Fact]
+    public void Nao_reconhece_unique_violation_de_outra_constraint()
+        => ConflitoConcorrencia.EhRetentavel(new DbUpdateException("save", Unique("IX_clientes_documento"))).Should().BeFalse();
+
+    private static PostgresException Unique(string constraint)
+        => new("duplicate key", "ERROR", "ERROR", "23505", tableName: "t", constraintName: constraint);
+
+    [Fact]
     public void Nao_reconhece_outros_erros()
     {
         ConflitoConcorrencia.EhRetentavel(new InvalidOperationException("x")).Should().BeFalse();
