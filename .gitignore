@@ -13,7 +13,7 @@ TestResults/
 # Secrets
 appsettings.*.local.json
 
-# Roteiro de vÃ­deo (apoio local, fora do repo)
+# Roteiro de vídeo (apoio local, fora do repo)
 docs/ROTEIRO-VIDEO*.md
 
 # Guia de entrega (apoio local, fora do repo)
@@ -22,7 +22,7 @@ docs/ENTREGA.md
 # Specs e planos (apoio local, fora do repo)
 docs/superpowers/
 
-# CÃ³digo gerado pelo Reqnroll (regenerado no build)
+# Código gerado pelo Reqnroll (regenerado no build)
 *.feature.cs
 
 # Secrets reais do Kubernetes
