@@ -145,6 +145,8 @@ app.Use(async (context, next) =>
 // Rotas /internal/* carregam dados pessoais no path (CPF): o valor é mascarado no log (ver MascaraPathEnricher).
 app.UseSerilogRequestLogging(o =>
 {
+    // Logger do próprio host (não o Log.Logger estático, que é global e trocado por qualquer outro host no processo).
+    o.Logger = app.Services.GetRequiredService<Serilog.ILogger>();
     o.GetMessageTemplateProperties = (http, path, elapsed, status) => new[]
     {
         new Serilog.Events.LogEventProperty("RequestMethod", new Serilog.Events.ScalarValue(http.Request.Method)),

@@ -127,8 +127,6 @@ public sealed class InternalClientesIntegrationTests : IClassFixture<OsApiFactor
         const string cpf = "29537995593";
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new("Bearer", OsApiFactory.Token("Atendente"));
-        // o middleware de request log usa o Log.Logger estático (do último host criado; as fixtures rodam em paralelo)
-        Serilog.Log.Logger = _factory.Services.GetRequiredService<Serilog.ILogger>();
         await client.GetAsync($"/api/clientes/por-documento/{cpf}");
 
         // o request log é emitido ao fim do pipeline, possivelmente após o cliente receber a resposta
